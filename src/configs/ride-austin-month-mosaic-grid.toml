@@ -1,0 +1,18 @@
+# Single 0.001-degree cells rarely reach Mosaic's 2%; 0.5% finds 8 / 5 / 8 cells (day / week / month).
+mode.weighted_heavy_hitters.threshold = 0.005
+
+data_bits = 22
+hist_buckets = 1
+
+server_0 = "0.0.0.0:8000"
+server_1 = "0.0.0.0:8001"
+
+add_report_share_batch_size = 1000
+query_flp_batch_size = 100000
+zipf_unique_buckets = 1000
+zipf_exponent = 1.03
+
+[dataset]
+path = "data/mosaic/sample_busiest_month.csv"
+encoding = "mosaic_grid"
+weight = "constant"

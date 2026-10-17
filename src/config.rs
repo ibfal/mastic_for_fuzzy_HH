@@ -26,6 +26,35 @@ pub enum Mode {
     PlainMetrics,
 }
 
+/// How a pickup location is encoded into the Mastic input string `alpha`.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum Encoding {
+    /// Mosaic's RideAustin grid: 0.001 degree cells, 11 bits per axis (`data_bits = 22`).
+    MosaicGrid,
+}
+
+/// What each ride contributes to the histogram `beta`.
+#[derive(Deserialize, Debug, Clone, Copy, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Weight {
+    /// Every ride counts once, as in Poplar (`hist_buckets = 1`).
+    #[default]
+    Constant,
+}
+
+/// Use real ride data instead of synthetic Zipf inputs.
+#[derive(Deserialize, Debug, Clone)]
+pub struct DatasetConfig {
+    /// Path to a CSV with `start_location_lat` and `start_location_long` columns.
+    pub path: String,
+
+    pub encoding: Encoding,
+
+    #[serde(default)]
+    pub weight: Weight,
+}
+
 #[derive(Deserialize)]
 pub struct Config {
     /// Number of bits of each string.
@@ -55,6 +84,9 @@ pub struct Config {
 
     /// The `IP:port` tuple for server 1.
     pub server_1: String,
+
+    /// Optional ride dataset. When set, the driver sends one report per ride.
+    pub dataset: Option<DatasetConfig>,
 }
 
 pub fn get_config(filename: &str) -> Config {

@@ -9,7 +9,7 @@ use mastic::{
     bits_to_bitstring,
     collect::{self, ReportShare},
     config::{self, Mode},
-    histogram_chunk_length,
+    dataset, geo, histogram_chunk_length,
     rpc::{
         AddReportSharesRequest, ApplyFLPResultsRequest, AttributeBasedMetricsResultRequest,
         AttributeBasedMetricsValidateRequest, FinalSharesRequest, GetProofsRequest,
@@ -124,22 +124,37 @@ impl PlaintextReport {
     }
 }
 
-fn generate_reports(cfg: &config::Config, mastic: &MasticHistogram) -> Vec<PlaintextReport> {
+/// Synthesize `zipf_unique_buckets` random `(alpha, bucket)` inputs. Clients are later drawn from
+/// them by a Zipf distribution.
+fn synthetic_inputs(cfg: &config::Config) -> Vec<(Vec<bool>, usize)> {
     assert!(cfg.zipf_unique_buckets > 0);
 
-    let reports = (0..cfg.zipf_unique_buckets)
-        .into_par_iter()
+    let mut rng = thread_rng();
+    (0..cfg.zipf_unique_buckets)
         .map(|_| {
+            (
+                sample_bits(cfg.data_bits.unwrap_or(0)),
+                rng.gen_range(0..cfg.hist_buckets),
+            )
+        })
+        .collect()
+}
+
+fn generate_reports(
+    cfg: &config::Config,
+    mastic: &MasticHistogram,
+    inputs: Vec<(Vec<bool>, usize)>,
+) -> Vec<PlaintextReport> {
+    assert!(!inputs.is_empty());
+
+    let reports = inputs
+        .into_par_iter()
+        .map(|(alpha, bucket)| {
             let mut rng = thread_rng();
             let nonce = rng.gen::<[u8; 16]>();
 
-            // Synthesize a fake histogram contribution.
-            let bucket = rng.gen_range(0..cfg.hist_buckets);
-
             match cfg.mode {
                 Mode::WeightedHeavyHitters { .. } | Mode::AttributeBasedMetrics { .. } => {
-                    // Synthesize a fake input and weight.
-                    let alpha = sample_bits(cfg.data_bits.unwrap());
                     let beta = mastic.encode_measurement(&bucket).unwrap();
 
                     let (key_0, key_1) = VidpfKey::gen(&alpha, &beta);
@@ -273,6 +288,7 @@ async fn add_reports(
     cfg: &config::Config,
     clients: (&CollectorClient, &CollectorClient),
     all_reports: &[PlaintextReport],
+    first: Option<usize>,
     num_clients: usize,
     malicious_percentage: f32,
 ) -> io::Result<()> {
@@ -282,7 +298,11 @@ async fn add_reports(
     let mut report_shares_0 = Vec::with_capacity(num_clients);
     let mut report_shares_1 = Vec::with_capacity(num_clients);
     for r in 0..num_clients {
-        let idx_1 = zipf.sample(&mut rng) - 1;
+        // Replay the dataset in order, or draw synthetic clients from the Zipf distribution.
+        let idx_1 = match first {
+            Some(first) => first + r,
+            None => zipf.sample(&mut rng) - 1,
+        };
         let [report_share_0, mut report_share_1] = all_reports[idx_1].to_shares();
 
         if rng.gen_range(0.0..1.0) < malicious_percentage {
@@ -526,10 +546,20 @@ async fn run_level_last(
         cfg.data_bits.unwrap(),
         start_last.elapsed().as_secs_f64()
     );
+    let encoder = cfg.dataset.as_ref().map(|d| geo::encoder(&d.encoding));
     for res in &collect::KeyCollection::final_values(mastic.input_len(), &shares_0, &shares_1) {
         let bits = mastic::bits_to_bitstring(&res.path);
         if res.value[mastic.input_len() - 1] > Field128::from(0) {
-            println!("Value ({}) \t Count: {:?}", bits, res.value);
+            match &encoder {
+                Some(encoder) => {
+                    let (lat, lon) = encoder.decode(&res.path);
+                    println!(
+                        "Value ({}) \t Location: ({:.3}, {:.3}) \t Count: {:?}",
+                        bits, lat, lon, res.value
+                    );
+                }
+                None => println!("Value ({}) \t Count: {:?}", bits, res.value),
+            }
         }
     }
 
@@ -706,9 +736,27 @@ async fn main() -> io::Result<()> {
     println!("- Using {:?} bits", cfg.data_bits);
 
     let mastic = Mastic::new_histogram(cfg.hist_buckets).unwrap();
+    let inputs = match &cfg.dataset {
+        Some(dataset) => {
+            let mut inputs =
+                dataset::load_inputs(dataset, cfg.data_bits.unwrap(), cfg.hist_buckets)
+                    .map_err(|e| Error::other(e.to_string()))?;
+            inputs.truncate(num_clients);
+            println!("- Loaded {} rides from {}", inputs.len(), dataset.path);
+            inputs
+        }
+        None => synthetic_inputs(&cfg),
+    };
+    // With a dataset, every ride is one client.
+    let num_clients = if cfg.dataset.is_some() {
+        inputs.len()
+    } else {
+        num_clients
+    };
+
     let start = Instant::now();
     println!("Generating reports...");
-    let reports = generate_reports(&cfg, &mastic);
+    let reports = generate_reports(&cfg, &mastic, inputs);
     let delta = start.elapsed().as_secs_f64();
     println!(
         "Generated {:?} keys in {:?} seconds ({:?} sec/key)",
@@ -729,6 +777,8 @@ async fn main() -> io::Result<()> {
 
         for _ in 0..reqs_in_flight {
             let this_batch = std::cmp::min(left_to_go, cfg.add_report_share_batch_size);
+            // Index of this batch's first ride when replaying a dataset.
+            let first = cfg.dataset.as_ref().map(|_| num_clients - left_to_go);
             left_to_go -= this_batch;
 
             if this_batch > 0 {
@@ -736,6 +786,7 @@ async fn main() -> io::Result<()> {
                     &cfg,
                     (&client_0, &client_1),
                     &reports,
+                    first,
                     this_batch,
                     malicious,
                 ));

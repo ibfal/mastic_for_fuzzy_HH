@@ -1,5 +1,7 @@
 pub mod collect;
 pub mod config;
+pub mod dataset;
+pub mod geo;
 pub mod prg;
 pub mod rpc;
 pub mod vidpf;

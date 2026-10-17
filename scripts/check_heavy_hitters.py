@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Plaintext ground truth for ride-sharing heavy hitters on Mosaic's grid.
+"""Plaintext ground truth for ride-sharing heavy hitters.
 
-Counts pickups per 0.001-degree cell exactly as `src/geo.rs` (MosaicGrid) does, prints every cell
-whose count reaches the threshold, and optionally checks a Mastic driver log against it.
+Encodes pickups exactly as `src/geo.rs` does (Mosaic's grid or geohash), prints every cell whose
+count reaches the threshold, and optionally checks a Mastic driver log against it.
 
-    python3 scripts/check_heavy_hitters.py data/mosaic/sample_busiest_day.csv --threshold 0.02 \
-        --mastic-log day.log --mosaic-results data/mosaic/results.json
+    python3 scripts/check_heavy_hitters.py data/mosaic/sample_busiest_day.csv --threshold 0.005 \
+        --mastic-log day.log
+    python3 scripts/check_heavy_hitters.py data/mosaic/sample_busiest_day.csv --threshold 0.005 \
+        --encoding geohash --prefix 9v6 --bits 20 --mastic-log day-geohash.log
 """
 
 import argparse
@@ -15,11 +17,14 @@ import math
 import re
 from collections import Counter
 
+# Mosaic's grid.
 MIN_LAT = 30.267 - 1.0
 MIN_LON = -97.743 - 1.0
 SCALE = 1000.0
 AXIS_BITS = 11
 GRID_SIZE = 2000
+
+GEOHASH_BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz"
 
 
 def to_cell(v):
@@ -43,30 +48,93 @@ def bits_to_grid(bits):
     return lat, lon
 
 
+def geohash_bits(lat, lon, n):
+    lat_range, lon_range = [-90.0, 90.0], [-180.0, 180.0]
+    out = []
+    for i in range(n):
+        r, v = (lon_range, lon) if i % 2 == 0 else (lat_range, lat)
+        mid = (r[0] + r[1]) / 2
+        if v >= mid:
+            out.append("1")
+            r[0] = mid
+        else:
+            out.append("0")
+            r[1] = mid
+    return "".join(out)
+
+
+def geohash_box(bits):
+    lat_range, lon_range = [-90.0, 90.0], [-180.0, 180.0]
+    for i, b in enumerate(bits):
+        r = lon_range if i % 2 == 0 else lat_range
+        mid = (r[0] + r[1]) / 2
+        if b == "1":
+            r[0] = mid
+        else:
+            r[1] = mid
+    return lat_range, lon_range
+
+
+def bits_to_base32(bits):
+    whole = len(bits) - len(bits) % 5
+    s = "".join(GEOHASH_BASE32[int(bits[i:i + 5], 2)] for i in range(0, whole, 5))
+    return s + (f"[{bits[whole:]}]" if whole < len(bits) else "")
+
+
+class MosaicGrid:
+    def encode(self, lat, lon):
+        return grid_to_bits(*to_grid(lat, lon))
+
+    def describe(self, bits):
+        lat_grid, lon_grid = bits_to_grid(bits)
+        lat, lon = MIN_LAT + lat_grid / SCALE, MIN_LON + lon_grid / SCALE
+        return f"grid ({lat_grid}, {lon_grid})  ({lat:.4f}, {lon:.4f})"
+
+
+class Geohash:
+    def __init__(self, prefix, bits):
+        self.prefix = "".join(f"{GEOHASH_BASE32.index(c):05b}" for c in prefix)
+        self.bits = bits
+
+    def encode(self, lat, lon):
+        full = geohash_bits(lat, lon, len(self.prefix) + self.bits)
+        return full[len(self.prefix):] if full.startswith(self.prefix) else None
+
+    def describe(self, bits):
+        full = self.prefix + bits
+        (lat0, lat1), (lon0, lon1) = geohash_box(full)
+        return f"{bits_to_base32(full)}  ({(lat0 + lat1) / 2:.4f}, {(lon0 + lon1) / 2:.4f})"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("csv", help="Mosaic sample_busiest_*.csv")
-    parser.add_argument("--threshold", type=float, default=0.02)
+    parser.add_argument("--threshold", type=float, default=0.005)
+    parser.add_argument("--encoding", choices=["mosaic_grid", "geohash"], default="mosaic_grid")
+    parser.add_argument("--prefix", default="9v6", help="geohash prefix shared by all rides")
+    parser.add_argument("--bits", type=int, default=20, help="geohash bits after the prefix")
     parser.add_argument("--mastic-log", help="driver output to compare against")
-    parser.add_argument("--mosaic-results", help="Mosaic results.json to compare against")
+    parser.add_argument("--mosaic-results", help="Mosaic results.json (mosaic_grid only)")
     args = parser.parse_args()
 
+    enc = MosaicGrid() if args.encoding == "mosaic_grid" else Geohash(args.prefix, args.bits)
     with open(args.csv, newline="") as f:
-        cells = [
-            to_grid(float(row["start_location_lat"]), float(row["start_location_long"]))
+        encoded = [
+            enc.encode(float(row["start_location_lat"]), float(row["start_location_long"]))
             for row in csv.DictReader(f)
         ]
+    cells = [c for c in encoded if c is not None]
+    if len(cells) < len(encoded):
+        print(f"Skipped {len(encoded) - len(cells)} rides outside the encoded area")
     counts = Counter(cells)
     # Same as the driver: max(1, floor(threshold * num_clients)).
     threshold = max(1, int(args.threshold * len(cells)))
-    expected = {grid_to_bits(*c): n for c, n in counts.items() if n >= threshold}
+    expected = {bits: n for bits, n in counts.items() if n >= threshold}
 
     print(f"{len(cells)} rides, {len(counts)} distinct cells, threshold {threshold}")
     print(f"{len(expected)} heavy-hitter cells:")
     for bits, n in sorted(expected.items(), key=lambda kv: -kv[1]):
-        lat_grid, lon_grid = bits_to_grid(bits)
-        lat, lon = MIN_LAT + lat_grid / SCALE, MIN_LON + lon_grid / SCALE
-        print(f"  {bits}  grid ({lat_grid}, {lon_grid})  ({lat:.3f}, {lon:.3f})  count {n}")
+        print(f"  {bits}  {enc.describe(bits)}  count {n}")
 
     ok = True
     if args.mastic_log:
@@ -83,6 +151,8 @@ def main():
               f"wrong count {len(wrong)} -> {'MATCH' if ok else 'MISMATCH'}")
 
     if args.mosaic_results:
+        if args.encoding != "mosaic_grid":
+            parser.error("--mosaic-results needs --encoding mosaic_grid")
         with open(args.mosaic_results) as f:
             mosaic = json.load(f)
         mosaic_cells = {(int(a), int(b)) for a, b in mosaic["heavy_hitters"]}

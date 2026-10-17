@@ -1,0 +1,20 @@
+# Same threshold as the mosaic-grid configs; finds 18 / 13 / 16 cells (day / week / month).
+mode.weighted_heavy_hitters.threshold = 0.005
+
+data_bits = 20
+hist_buckets = 1
+
+server_0 = "0.0.0.0:8000"
+server_1 = "0.0.0.0:8001"
+
+add_report_share_batch_size = 1000
+# Larger batches exceed tarpc's 8 MiB frame limit (100000 fails on the month dataset).
+query_flp_batch_size = 50000
+zipf_unique_buckets = 1000
+zipf_exponent = 1.03
+
+[dataset]
+path = "data/mosaic/sample_busiest_day.csv"
+# All of Austin lies in geohash 9v6; the 20 bits after it give precision 7 (~150 m cells).
+encoding.geohash = { prefix = "9v6", bits = 20 }
+weight = "constant"

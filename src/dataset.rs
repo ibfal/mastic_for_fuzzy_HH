@@ -63,11 +63,19 @@ pub fn load_inputs(
     }
 
     let rides = load_rides(&dataset.path)?;
-    Ok(rides
+    let inputs = rides
         .iter()
-        .map(|ride| {
-            let alpha = encoder.encode(ride.start_location_lat, ride.start_location_long);
-            (alpha, dataset.weight.bucket(ride))
+        .filter_map(|ride| {
+            let alpha = encoder.encode(ride.start_location_lat, ride.start_location_long)?;
+            Some((alpha, dataset.weight.bucket(ride)))
         })
-        .collect())
+        .collect::<Vec<_>>();
+    if inputs.len() < rides.len() {
+        println!(
+            "- Skipped {} rides outside the area covered by {:?}",
+            rides.len() - inputs.len(),
+            dataset.encoding
+        );
+    }
+    Ok(inputs)
 }

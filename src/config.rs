@@ -32,6 +32,15 @@ pub enum Mode {
 pub enum Encoding {
     /// Mosaic's RideAustin grid: 0.001 degree cells, 11 bits per axis (`data_bits = 22`).
     MosaicGrid,
+
+    /// Standard geohash. Every point must lie inside the cell named by `prefix`; those bits are
+    /// shared by all rides, so only the next `bits` bits are sent (`data_bits = bits`).
+    Geohash {
+        /// Base32 geohash covering the whole area, e.g. "9v6" for Austin.
+        prefix: String,
+        /// Bits after the prefix. Each bit halves the cell, alternating longitude and latitude.
+        bits: usize,
+    },
 }
 
 /// What each ride contributes to the histogram `beta`.

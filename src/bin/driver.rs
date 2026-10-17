@@ -554,8 +554,12 @@ async fn run_level_last(
                 Some(encoder) => {
                     let (lat, lon) = encoder.decode(&res.path);
                     println!(
-                        "Value ({}) \t Location: ({:.3}, {:.3}) \t Count: {:?}",
-                        bits, lat, lon, res.value
+                        "Value ({}) \t Cell: {} \t Location: ({:.4}, {:.4}) \t Count: {:?}",
+                        bits,
+                        encoder.label(&res.path),
+                        lat,
+                        lon,
+                        res.value
                     );
                 }
                 None => println!("Value ({}) \t Count: {:?}", bits, res.value),

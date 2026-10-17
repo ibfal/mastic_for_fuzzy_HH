@@ -9,16 +9,21 @@ pub trait LocationEncoder: Sync {
     /// Number of bits produced by `encode`. Must equal `data_bits` in the config.
     fn depth(&self) -> usize;
 
-    /// Encode a point, most significant (coarsest) bit first.
-    fn encode(&self, lat: f64, lon: f64) -> Vec<bool>;
+    /// Encode a point, most significant (coarsest) bit first. Returns `None` if the point lies
+    /// outside the area the encoder covers.
+    fn encode(&self, lat: f64, lon: f64) -> Option<Vec<bool>>;
 
     /// Center `(lat, lon)` of the cell named by a full-length bit string.
     fn decode(&self, bits: &[bool]) -> (f64, f64);
+
+    /// Human-readable name of the cell named by a full-length bit string.
+    fn label(&self, bits: &[bool]) -> String;
 }
 
 pub fn encoder(encoding: &Encoding) -> Box<dyn LocationEncoder> {
     match encoding {
         Encoding::MosaicGrid => Box::new(MosaicGrid),
+        Encoding::Geohash { prefix, bits } => Box::new(Geohash::new(prefix, *bits)),
     }
 }
 
@@ -70,13 +75,129 @@ impl LocationEncoder for MosaicGrid {
         2 * Self::AXIS_BITS
     }
 
-    fn encode(&self, lat: f64, lon: f64) -> Vec<bool> {
+    fn encode(&self, lat: f64, lon: f64) -> Option<Vec<bool>> {
+        // Points outside the grid are clamped to its edge, as Mosaic does.
         let (lat_grid, lon_grid) = Self::to_grid(lat, lon);
-        Self::grid_to_bits(lat_grid, lon_grid)
+        Some(Self::grid_to_bits(lat_grid, lon_grid))
     }
 
     fn decode(&self, bits: &[bool]) -> (f64, f64) {
         let (lat_grid, lon_grid) = Self::bits_to_grid(bits);
         Self::from_grid(lat_grid, lon_grid)
+    }
+
+    fn label(&self, bits: &[bool]) -> String {
+        let (lat_grid, lon_grid) = Self::bits_to_grid(bits);
+        format!("grid ({lat_grid}, {lon_grid})")
+    }
+}
+
+const GEOHASH_BASE32: &[u8; 32] = b"0123456789bcdefghjkmnpqrstuvwxyz";
+
+/// Standard geohash: halve the world alternately by longitude and latitude, longitude first.
+/// The bits of a fixed `prefix` that covers the whole dataset are not sent.
+pub struct Geohash {
+    prefix: Vec<bool>,
+    bits: usize,
+}
+
+impl Geohash {
+    pub fn new(prefix: &str, bits: usize) -> Self {
+        Self {
+            prefix: Self::base32_to_bits(prefix),
+            bits,
+        }
+    }
+
+    /// The first `n` geohash bits of a point.
+    pub fn point_to_bits(lat: f64, lon: f64, n: usize) -> Vec<bool> {
+        let (mut lat_range, mut lon_range) = ((-90.0, 90.0), (-180.0, 180.0));
+        (0..n)
+            .map(|i| {
+                let (range, v) = if i % 2 == 0 {
+                    (&mut lon_range, lon)
+                } else {
+                    (&mut lat_range, lat)
+                };
+                let mid = (range.0 + range.1) / 2.0;
+                if v >= mid {
+                    range.0 = mid;
+                    true
+                } else {
+                    range.1 = mid;
+                    false
+                }
+            })
+            .collect()
+    }
+
+    /// Bounding box `((min_lat, max_lat), (min_lon, max_lon))` of a geohash bit string.
+    pub fn bits_to_box(bits: &[bool]) -> ((f64, f64), (f64, f64)) {
+        let (mut lat_range, mut lon_range) = ((-90.0, 90.0), (-180.0, 180.0));
+        for (i, &bit) in bits.iter().enumerate() {
+            let range: &mut (f64, f64) = if i % 2 == 0 {
+                &mut lon_range
+            } else {
+                &mut lat_range
+            };
+            let mid = (range.0 + range.1) / 2.0;
+            if bit {
+                range.0 = mid;
+            } else {
+                range.1 = mid;
+            }
+        }
+        (lat_range, lon_range)
+    }
+
+    pub fn base32_to_bits(s: &str) -> Vec<bool> {
+        s.bytes()
+            .flat_map(|c| {
+                let v = GEOHASH_BASE32
+                    .iter()
+                    .position(|&b| b == c)
+                    .unwrap_or_else(|| panic!("invalid geohash character {:?}", c as char));
+                (0..5).rev().map(move |i| (v >> i) & 1 == 1)
+            })
+            .collect()
+    }
+
+    /// Base32 string of the whole 5-bit groups in `bits`; any leftover bits are shown in brackets.
+    pub fn bits_to_base32(bits: &[bool]) -> String {
+        let chunks = bits.chunks_exact(5);
+        let rest = chunks.remainder();
+        let mut s: String = chunks
+            .map(|c| GEOHASH_BASE32[c.iter().fold(0, |v, &b| (v << 1) | b as usize)] as char)
+            .collect();
+        if !rest.is_empty() {
+            s.push_str(&format!("[{}]", crate::bits_to_bitstring(rest)));
+        }
+        s
+    }
+
+    fn full_bits(&self, bits: &[bool]) -> Vec<bool> {
+        assert_eq!(bits.len(), self.bits);
+        [&self.prefix[..], bits].concat()
+    }
+}
+
+impl LocationEncoder for Geohash {
+    fn depth(&self) -> usize {
+        self.bits
+    }
+
+    fn encode(&self, lat: f64, lon: f64) -> Option<Vec<bool>> {
+        let full = Self::point_to_bits(lat, lon, self.prefix.len() + self.bits);
+        full.starts_with(&self.prefix)
+            .then(|| full[self.prefix.len()..].to_vec())
+    }
+
+    fn decode(&self, bits: &[bool]) -> (f64, f64) {
+        let (lat, lon) = Self::bits_to_box(&self.full_bits(bits));
+        ((lat.0 + lat.1) / 2.0, (lon.0 + lon.1) / 2.0)
+    }
+
+    fn label(&self, bits: &[bool]) -> String {
+        Self::bits_to_base32(&self.full_bits(bits))
     }
 }

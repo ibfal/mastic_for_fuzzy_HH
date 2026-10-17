@@ -1,4 +1,4 @@
-use mastic::geo::{LocationEncoder, MosaicGrid};
+use mastic::geo::{Geohash, LocationEncoder, MosaicGrid};
 
 #[test]
 fn mosaic_grid_matches_mosaic() {
@@ -15,7 +15,7 @@ fn mosaic_grid_round_trip() {
         (29.998, -98.026),
         (30.631, -97.355),
     ] {
-        let bits = enc.encode(lat, lon);
+        let bits = enc.encode(lat, lon).unwrap();
         assert_eq!(bits.len(), enc.depth());
         let (lat2, lon2) = enc.decode(&bits);
         assert!((lat - lat2).abs() < 1e-9 && (lon - lon2).abs() < 1e-9);
@@ -32,4 +32,39 @@ fn mosaic_grid_prefix_is_enclosing_region() {
     assert_eq!(a[..16], b[..16]);
     assert_ne!(a[..16], far[..16]);
     assert_eq!(MosaicGrid::bits_to_grid(&a), (998, 1011));
+}
+
+#[test]
+fn geohash_matches_reference() {
+    // Example from https://en.wikipedia.org/wiki/Geohash.
+    let bits = Geohash::point_to_bits(57.64911, 10.40744, 55);
+    assert_eq!(Geohash::bits_to_base32(&bits), "u4pruydqqvj");
+    assert_eq!(Geohash::base32_to_bits("u4pruydqqvj"), bits);
+}
+
+#[test]
+fn geohash_drops_shared_prefix() {
+    // Downtown Austin is geohash 9v6s0j9; only the 20 bits after "9v6" are sent.
+    let enc = Geohash::new("9v6", 20);
+    let bits = enc.encode(30.265, -97.732).unwrap();
+    assert_eq!(bits.len(), enc.depth());
+    assert_eq!(enc.label(&bits), "9v6s0j9");
+    let (lat, lon) = enc.decode(&bits);
+    assert!((lat - 30.265).abs() < 0.001 && (lon - -97.732).abs() < 0.001);
+}
+
+#[test]
+fn geohash_rejects_points_outside_prefix() {
+    // Dallas is not inside 9v6.
+    assert!(Geohash::new("9v6", 20).encode(32.78, -96.80).is_none());
+}
+
+#[test]
+fn geohash_prefix_is_enclosing_region() {
+    // A shorter geohash is a prefix of a longer one, and its box contains the point.
+    let long = Geohash::point_to_bits(30.265, -97.732, 35);
+    let short = Geohash::point_to_bits(30.265, -97.732, 20);
+    assert_eq!(long[..20], short[..]);
+    let ((lat_lo, lat_hi), (lon_lo, lon_hi)) = Geohash::bits_to_box(&short);
+    assert!(lat_lo <= 30.265 && 30.265 < lat_hi && lon_lo <= -97.732 && -97.732 < lon_hi);
 }

@@ -1,0 +1,19 @@
+# 10 landmarks, 165 rides: 0.1 (16 rides) keeps exactly the top four (50, 40, 30, 20).
+mode.weighted_heavy_hitters.threshold = 0.1
+
+data_bits = 22
+hist_buckets = 1
+
+server_0 = "0.0.0.0:8000"
+server_1 = "0.0.0.0:8001"
+
+add_report_share_batch_size = 1000
+# Larger batches exceed tarpc's 8 MiB frame limit (100000 fails on the month dataset).
+query_flp_batch_size = 50000
+zipf_unique_buckets = 1000
+zipf_exponent = 1.03
+
+[dataset]
+path = "data/synthetic/ten_locations.csv"
+encoding = "mosaic_grid"
+weight = "constant"

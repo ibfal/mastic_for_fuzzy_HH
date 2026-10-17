@@ -10,8 +10,10 @@ import csv
 import os
 import sys
 
-# (name, lat, lon, rides). Coordinates use 3 decimals like the RideAustin data, and every landmark
-# falls in a different cell for both the Mosaic grid and geohash precision 7.
+from check_heavy_hitters import make_encoder
+
+# (name, lat, lon, rides). Coordinates use 3 decimals like the RideAustin data. Every landmark must
+# fall in a different cell, or their counts merge; `check_distinct_cells` below verifies this.
 LANDMARKS = [
     ("Airport", 30.197, -97.666, 50),
     ("Texas Capitol", 30.275, -97.740, 40),
@@ -24,6 +26,30 @@ LANDMARKS = [
     ("Round Rock", 30.508, -97.679, 2),
     ("Lady Bird Lake", 30.262, -97.745, 1),
 ]
+
+
+# Encodings used by the synthetic-ten-locations-*.toml configs.
+ENCODINGS = [
+    ("mosaic_grid", {}),
+    ("geohash", {"prefix": "9v6", "bits": 20}),
+    ("h3", {"prefix": "82489ffffffffff", "resolution": 9}),
+]
+
+
+def check_distinct_cells():
+    """Warn if two landmarks share a cell, which would change the expected answer."""
+    for encoding, params in ENCODINGS:
+        try:
+            enc = make_encoder(encoding, **params)
+        except ImportError:
+            print(f"  {encoding}: skipped (pip install -r scripts/requirements.txt)")
+            continue
+        cells = {}
+        for name, lat, lon, _ in LANDMARKS:
+            cells.setdefault(enc.encode(lat, lon), []).append(name)
+        shared = [names for cell, names in cells.items() if len(names) > 1 or cell is None]
+        status = "OK" if not shared else f"WARNING, shared or outside: {shared}"
+        print(f"  {encoding}: {len(LANDMARKS)} landmarks in {len(cells)} cells, {status}")
 
 
 def main():
@@ -42,6 +68,8 @@ def main():
     for name, lat, lon, rides in LANDMARKS:
         if rides >= threshold:
             print(f"  {name:<15} ({lat:.3f}, {lon:.3f})  count {rides}")
+    print("Landmarks in separate cells:")
+    check_distinct_cells()
 
 
 if __name__ == "__main__":

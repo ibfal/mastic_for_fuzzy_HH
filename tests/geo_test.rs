@@ -1,4 +1,5 @@
-use mastic::geo::{Geohash, LocationEncoder, MosaicGrid};
+use h3o::Resolution;
+use mastic::geo::{Geohash, LocationEncoder, MosaicGrid, H3};
 
 #[test]
 fn mosaic_grid_matches_mosaic() {
@@ -67,4 +68,50 @@ fn geohash_prefix_is_enclosing_region() {
     assert_eq!(long[..20], short[..]);
     let ((lat_lo, lat_hi), (lon_lo, lon_hi)) = Geohash::bits_to_box(&short);
     assert!(lat_lo <= 30.265 && 30.265 < lat_hi && lon_lo <= -97.732 && -97.732 < lon_hi);
+}
+
+#[test]
+fn h3_matches_reference() {
+    // Downtown Austin at resolution 9, as given by Uber's reference library (h3-py 4.5).
+    let enc = H3::new("82489ffffffffff", 9);
+    let bits = enc.encode(30.265, -97.732).unwrap();
+    assert_eq!(bits.len(), 21);
+    assert_eq!(enc.label(&bits), "89489e3464bffff");
+    let (lat, lon) = enc.decode(&bits);
+    assert!((lat - 30.263433).abs() < 1e-5 && (lon - -97.731642).abs() < 1e-5);
+}
+
+#[test]
+fn h3_prefix_is_parent_cell() {
+    // The first 3 * k bits of a resolution 9 cell name its parent at resolution 2 + k.
+    let fine_enc = H3::new("82489ffffffffff", 9);
+    let fine = fine_enc.encode(30.265, -97.732).unwrap();
+    let parent = fine_enc.cell(&fine).parent(Resolution::Seven).unwrap();
+    assert_eq!(
+        H3::new("82489ffffffffff", 7).label(&fine[..15]),
+        parent.to_string()
+    );
+}
+
+#[test]
+fn h3_cells_do_not_nest_exactly() {
+    // The resolution 7 hexagon containing this point is not the parent of its resolution 9
+    // cell (checked with h3-py 4.5), so prefix counts only approximate coarser hexagons.
+    let fine_enc = H3::new("82489ffffffffff", 9);
+    let fine = fine_enc.encode(30.265, -97.732).unwrap();
+    assert_eq!(
+        H3::new("82489ffffffffff", 7).label(&fine[..15]),
+        "87489e346ffffff"
+    );
+    let coarse_enc = H3::new("82489ffffffffff", 7);
+    let coarse = coarse_enc.encode(30.265, -97.732).unwrap();
+    assert_eq!(coarse_enc.label(&coarse), "87489e355ffffff");
+}
+
+#[test]
+fn h3_rejects_points_outside_prefix() {
+    // Dallas is not inside 82489ffffffffff.
+    assert!(H3::new("82489ffffffffff", 9)
+        .encode(32.78, -96.80)
+        .is_none());
 }

@@ -41,6 +41,16 @@ pub enum Encoding {
         /// Bits after the prefix. Each bit halves the cell, alternating longitude and latitude.
         bits: usize,
     },
+
+    /// Uber's H3 hexagonal grid. Every point must lie inside the H3 cell `prefix`; only the
+    /// 3-bit digits for the resolutions below it are sent (`data_bits = 3 * (resolution -
+    /// prefix resolution)`).
+    H3 {
+        /// H3 cell covering the whole area, e.g. "82489ffffffffff" (resolution 2) for Austin.
+        prefix: String,
+        /// Resolution of the cells to count, 0 (coarsest) to 15.
+        resolution: u8,
+    },
 }
 
 /// What each ride contributes to the histogram `beta`.

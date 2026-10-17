@@ -3,6 +3,8 @@
 //! Every encoder emits the coarsest bit first, so each prefix of `alpha` names a region that
 //! contains all of its extensions. Mastic's tree crawl then finds heavy regions top-down.
 
+use h3o::{CellIndex, LatLng, Resolution};
+
 use crate::config::Encoding;
 
 pub trait LocationEncoder: Sync {
@@ -24,6 +26,7 @@ pub fn encoder(encoding: &Encoding) -> Box<dyn LocationEncoder> {
     match encoding {
         Encoding::MosaicGrid => Box::new(MosaicGrid),
         Encoding::Geohash { prefix, bits } => Box::new(Geohash::new(prefix, *bits)),
+        Encoding::H3 { prefix, resolution } => Box::new(H3::new(prefix, *resolution)),
     }
 }
 
@@ -199,5 +202,89 @@ impl LocationEncoder for Geohash {
 
     fn label(&self, bits: &[bool]) -> String {
         Self::bits_to_base32(&self.full_bits(bits))
+    }
+}
+
+/// Uber's H3 hexagonal grid. A cell index stores one 3-bit digit per resolution below its base
+/// cell, so a parent's digits are a prefix of its children's. The digits of a fixed `prefix` cell
+/// that covers the whole dataset are not sent.
+///
+/// Aperture-7 hexagons do not nest exactly: a parent's count is the sum of its 7 children, whose
+/// union only approximates the parent hexagon. Tree levels that fall inside a 3-bit digit have no
+/// geometric meaning; only every third level is a real resolution.
+pub struct H3 {
+    prefix: CellIndex,
+    resolution: Resolution,
+}
+
+impl H3 {
+    /// Bit offset of the resolution field in an H3 index.
+    const RES_OFFSET: u64 = 52;
+
+    pub fn new(prefix: &str, resolution: u8) -> Self {
+        let prefix: CellIndex = prefix
+            .parse()
+            .unwrap_or_else(|e| panic!("invalid H3 prefix {prefix:?}: {e}"));
+        let resolution = Resolution::try_from(resolution)
+            .unwrap_or_else(|e| panic!("invalid H3 resolution {resolution}: {e}"));
+        assert!(
+            resolution > prefix.resolution(),
+            "H3 resolution must be finer than the prefix resolution"
+        );
+        Self { prefix, resolution }
+    }
+
+    /// Resolutions whose digits are sent, coarsest first.
+    fn sent_resolutions(&self) -> impl Iterator<Item = u8> {
+        u8::from(self.prefix.resolution()) + 1..=u8::from(self.resolution)
+    }
+
+    /// Bit offset of the digit for resolution `r` in an H3 index.
+    fn digit_offset(r: u8) -> u64 {
+        3 * (15 - r as u64)
+    }
+
+    pub fn cell(&self, bits: &[bool]) -> CellIndex {
+        assert_eq!(bits.len(), self.depth());
+        let mut index = u64::from(self.prefix);
+        index &= !(0xf << Self::RES_OFFSET);
+        index |= (u8::from(self.resolution) as u64) << Self::RES_OFFSET;
+        for (r, digit) in self.sent_resolutions().zip(bits.chunks(3)) {
+            let digit = digit.iter().fold(0, |v, &b| (v << 1) | b as u64);
+            index &= !(0b111 << Self::digit_offset(r));
+            index |= digit << Self::digit_offset(r);
+        }
+        CellIndex::try_from(index).expect("bits do not name a valid H3 cell")
+    }
+}
+
+impl LocationEncoder for H3 {
+    fn depth(&self) -> usize {
+        3 * self.sent_resolutions().count()
+    }
+
+    fn encode(&self, lat: f64, lon: f64) -> Option<Vec<bool>> {
+        let cell = LatLng::new(lat, lon).ok()?.to_cell(self.resolution);
+        if cell.parent(self.prefix.resolution()) != Some(self.prefix) {
+            return None;
+        }
+        let index = u64::from(cell);
+        Some(
+            self.sent_resolutions()
+                .flat_map(|r| {
+                    let digit = (index >> Self::digit_offset(r)) & 0b111;
+                    (0..3).rev().map(move |i| (digit >> i) & 1 == 1)
+                })
+                .collect(),
+        )
+    }
+
+    fn decode(&self, bits: &[bool]) -> (f64, f64) {
+        let center = LatLng::from(self.cell(bits));
+        (center.lat(), center.lng())
+    }
+
+    fn label(&self, bits: &[bool]) -> String {
+        self.cell(bits).to_string()
     }
 }

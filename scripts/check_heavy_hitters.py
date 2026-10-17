@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Plaintext ground truth for ride-sharing heavy hitters.
 
-Encodes pickups exactly as `src/geo.rs` does (Mosaic's grid or geohash), prints every cell whose
-count reaches the threshold, and optionally checks a Mastic driver log against it.
+Encodes pickups exactly as `src/geo.rs` does (Mosaic's grid, geohash or H3), prints every cell
+whose count reaches the threshold, and optionally checks a Mastic driver log against it. H3 uses
+Uber's reference library (`pip install -r scripts/requirements.txt`), independent of the Rust code.
 
     python3 scripts/check_heavy_hitters.py data/mosaic/sample_busiest_day.csv --threshold 0.005 \
         --mastic-log day.log
     python3 scripts/check_heavy_hitters.py data/mosaic/sample_busiest_day.csv --threshold 0.005 \
         --encoding geohash --prefix 9v6 --bits 20 --mastic-log day-geohash.log
+    python3 scripts/check_heavy_hitters.py data/mosaic/sample_busiest_day.csv --threshold 0.005 \
+        --encoding h3 --prefix 82489ffffffffff --resolution 9 --mastic-log day-h3.log
 """
 
 import argparse
@@ -106,18 +109,61 @@ class Geohash:
         return f"{bits_to_base32(full)}  ({(lat0 + lat1) / 2:.4f}, {(lon0 + lon1) / 2:.4f})"
 
 
+class H3:
+    def __init__(self, prefix, resolution):
+        import h3  # Only needed for this encoding.
+
+        self.h3 = h3
+        self.prefix = prefix
+        self.prefix_res = h3.get_resolution(prefix)
+        self.resolution = resolution
+
+    def _resolutions(self):
+        return range(self.prefix_res + 1, self.resolution + 1)
+
+    def encode(self, lat, lon):
+        cell = self.h3.latlng_to_cell(lat, lon, self.resolution)
+        if self.h3.cell_to_parent(cell, self.prefix_res) != self.prefix:
+            return None
+        index = self.h3.str_to_int(cell)
+        return "".join(f"{(index >> 3 * (15 - r)) & 7:03b}" for r in self._resolutions())
+
+    def cell(self, bits):
+        index = self.h3.str_to_int(self.prefix)
+        index = (index & ~(0xF << 52)) | (self.resolution << 52)
+        for r, i in zip(self._resolutions(), range(0, len(bits), 3)):
+            index = (index & ~(7 << 3 * (15 - r))) | (int(bits[i:i + 3], 2) << 3 * (15 - r))
+        return self.h3.int_to_str(index)
+
+    def describe(self, bits):
+        cell = self.cell(bits)
+        lat, lon = self.h3.cell_to_latlng(cell)
+        return f"{cell}  ({lat:.4f}, {lon:.4f})"
+
+
+def make_encoder(encoding, prefix=None, bits=20, resolution=9):
+    if encoding == "mosaic_grid":
+        return MosaicGrid()
+    if encoding == "geohash":
+        return Geohash(prefix or "9v6", bits)
+    return H3(prefix or "82489ffffffffff", resolution)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("csv", help="Mosaic sample_busiest_*.csv")
     parser.add_argument("--threshold", type=float, default=0.005)
-    parser.add_argument("--encoding", choices=["mosaic_grid", "geohash"], default="mosaic_grid")
-    parser.add_argument("--prefix", default="9v6", help="geohash prefix shared by all rides")
+    parser.add_argument("--encoding", choices=["mosaic_grid", "geohash", "h3"],
+                        default="mosaic_grid")
+    parser.add_argument("--prefix", help="cell shared by all rides (default: 9v6 for geohash, "
+                        "82489ffffffffff for h3)")
     parser.add_argument("--bits", type=int, default=20, help="geohash bits after the prefix")
+    parser.add_argument("--resolution", type=int, default=9, help="H3 resolution")
     parser.add_argument("--mastic-log", help="driver output to compare against")
     parser.add_argument("--mosaic-results", help="Mosaic results.json (mosaic_grid only)")
     args = parser.parse_args()
 
-    enc = MosaicGrid() if args.encoding == "mosaic_grid" else Geohash(args.prefix, args.bits)
+    enc = make_encoder(args.encoding, args.prefix, args.bits, args.resolution)
     with open(args.csv, newline="") as f:
         encoded = [
             enc.encode(float(row["start_location_lat"]), float(row["start_location_long"]))

@@ -170,8 +170,8 @@ def main():
             for row in csv.DictReader(f)
         ]
     cells = [c for c in encoded if c is not None]
-    if len(cells) < len(encoded):
-        print(f"Skipped {len(encoded) - len(cells)} rides outside the encoded area")
+    print(f"*** DROPPED RIDES: {len(encoded) - len(cells)} of {len(encoded)} outside the encoded "
+          "area ***")
     counts = Counter(cells)
     # Same as the driver: max(1, floor(threshold * num_clients)).
     threshold = max(1, int(args.threshold * len(cells)))

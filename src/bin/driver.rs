@@ -740,13 +740,24 @@ async fn main() -> io::Result<()> {
     println!("- Using {:?} bits", cfg.data_bits);
 
     let mastic = Mastic::new_histogram(cfg.hist_buckets).unwrap();
+    // Printed after loading and again with the results, so dropped rides are never missed.
+    let mut rides_summary = None;
     let inputs = match &cfg.dataset {
         Some(dataset) => {
-            let mut inputs =
-                dataset::load_inputs(dataset, cfg.data_bits.unwrap(), cfg.hist_buckets)
-                    .map_err(|e| Error::other(e.to_string()))?;
+            let loaded = dataset::load_inputs(dataset, cfg.data_bits.unwrap(), cfg.hist_buckets)
+                .map_err(|e| Error::other(e.to_string()))?;
+            let mut inputs = loaded.inputs;
             inputs.truncate(num_clients);
             println!("- Loaded {} rides from {}", inputs.len(), dataset.path);
+            let summary = format!(
+                "*** DROPPED RIDES: {} of {} outside the area of {:?}; {} rides used ***",
+                loaded.dropped,
+                loaded.total,
+                dataset.encoding,
+                inputs.len()
+            );
+            println!("{summary}");
+            rides_summary = Some(summary);
             inputs
         }
         None => synthetic_inputs(&cfg),
@@ -852,6 +863,9 @@ async fn main() -> io::Result<()> {
         }
     };
     println!("Total time {:?}", start.elapsed().as_secs_f64());
+    if let Some(summary) = &rides_summary {
+        println!("{summary}");
+    }
 
     Ok(())
 }

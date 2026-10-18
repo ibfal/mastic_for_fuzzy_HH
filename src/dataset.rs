@@ -38,12 +38,25 @@ impl Weight {
     }
 }
 
+/// The encoded rides of a dataset.
+pub struct LoadedInputs {
+    /// `(alpha, bucket)` for every ride inside the encoded area, in file order.
+    pub inputs: Vec<(Vec<bool>, usize)>,
+
+    /// Number of rides in the file.
+    pub total: usize,
+
+    /// Rides outside the area covered by the encoding. They are not sent, so they do not count
+    /// towards the number of clients the threshold is computed from.
+    pub dropped: usize,
+}
+
 /// Load the dataset and encode each ride as `(alpha, bucket)`, in file order.
 pub fn load_inputs(
     dataset: &DatasetConfig,
     data_bits: usize,
     hist_buckets: usize,
-) -> Result<Vec<(Vec<bool>, usize)>, Box<dyn Error>> {
+) -> Result<LoadedInputs, Box<dyn Error>> {
     let encoder = geo::encoder(&dataset.encoding);
     if encoder.depth() != data_bits {
         return Err(format!(
@@ -70,12 +83,9 @@ pub fn load_inputs(
             Some((alpha, dataset.weight.bucket(ride)))
         })
         .collect::<Vec<_>>();
-    if inputs.len() < rides.len() {
-        println!(
-            "- Skipped {} rides outside the area covered by {:?}",
-            rides.len() - inputs.len(),
-            dataset.encoding
-        );
-    }
-    Ok(inputs)
+    Ok(LoadedInputs {
+        total: rides.len(),
+        dropped: rides.len() - inputs.len(),
+        inputs,
+    })
 }

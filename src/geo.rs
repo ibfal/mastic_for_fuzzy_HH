@@ -30,6 +30,28 @@ pub fn encoder(encoding: &Encoding) -> Box<dyn LocationEncoder> {
     }
 }
 
+/// Morton (Z-order) code of two `axis_bits`-bit cell indices: interleave the axes (lon, lat, lon,
+/// ...), most significant bit first, so each prefix names an aligned block of cells.
+pub fn interleave(lat_idx: u32, lon_idx: u32, axis_bits: usize) -> Vec<bool> {
+    (0..axis_bits)
+        .rev()
+        .flat_map(|i| [(lon_idx >> i) & 1 == 1, (lat_idx >> i) & 1 == 1])
+        .collect()
+}
+
+/// Inverse of [`interleave`]: the `(lat_idx, lon_idx)` named by a bit string of even length. A
+/// prefix of `2j` bits gives the indices of its block at `j` bits per axis.
+pub fn deinterleave(bits: &[bool]) -> (u32, u32) {
+    assert_eq!(
+        bits.len() % 2,
+        0,
+        "a Morton code has an even number of bits"
+    );
+    bits.chunks(2).fold((0, 0), |(lat, lon), pair| {
+        ((lat << 1) | pair[1] as u32, (lon << 1) | pair[0] as u32)
+    })
+}
+
 /// The grid used by Mosaic for RideAustin: 0.001 degree cells, 11 bits per axis, with the origin
 /// one degree south-west of downtown Austin. Using it keeps cells identical to Mosaic's.
 pub struct MosaicGrid;
@@ -59,17 +81,12 @@ impl MosaicGrid {
 
     /// Interleave the two axes (lon, lat, lon, ...), most significant bit first, like geohash.
     pub fn grid_to_bits(lat_grid: u32, lon_grid: u32) -> Vec<bool> {
-        (0..Self::AXIS_BITS)
-            .rev()
-            .flat_map(|i| [(lon_grid >> i) & 1 == 1, (lat_grid >> i) & 1 == 1])
-            .collect()
+        interleave(lat_grid, lon_grid, Self::AXIS_BITS)
     }
 
     pub fn bits_to_grid(bits: &[bool]) -> (u32, u32) {
         assert_eq!(bits.len(), 2 * Self::AXIS_BITS);
-        bits.chunks(2).fold((0, 0), |(lat, lon), pair| {
-            ((lat << 1) | pair[1] as u32, (lon << 1) | pair[0] as u32)
-        })
+        deinterleave(bits)
     }
 }
 

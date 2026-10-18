@@ -1,0 +1,22 @@
+# Morton cells with the area of an H3 resolution 10 cell in Austin: square in degrees, side
+# 0.001268492 deg, matching 0.01718 km2, the mean area of the resolution 10 cells containing the
+# day's pickups (H3's global average is 0.01505 km2). 10 bits per axis (data_bits = 20). No rides
+# are dropped. Same threshold as the other encodings; finds 12 / 13 / 14 cells (day / week / month).
+mode.weighted_heavy_hitters.threshold = 0.005
+
+data_bits = 20
+hist_buckets = 1
+
+server_0 = "0.0.0.0:8000"
+server_1 = "0.0.0.0:8001"
+
+add_report_share_batch_size = 1000
+# Larger batches exceed tarpc's 8 MiB frame limit (100000 fails on the month dataset).
+query_flp_batch_size = 50000
+zipf_unique_buckets = 1000
+zipf_exponent = 1.03
+
+[dataset]
+path = "data/mosaic/sample_busiest_day.csv"
+encoding.morton = { min_lat = 29.9005, max_lat = 31.199435808, min_lon = -98.0505, max_lon = -96.751564192, axis_bits = 10 }
+weight = "constant"

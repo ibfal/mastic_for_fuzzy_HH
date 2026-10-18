@@ -1,0 +1,23 @@
+# Morton cells with the area of a geohash cell at 9v6 + 21 bits: square in degrees, side
+# sqrt(180 * 360) / 2^18 = 0.000971063 deg (0.0101 km2 at Austin), 10 bits per axis
+# (data_bits = 20). The cells are smaller than the 0.001 deg data step, so every data point keeps
+# its own cell: the same 8 / 5 / 8 cells (day / week / month) as the 0.001 deg box. Geohash's
+# own 21-bit cells are 1:2 in degrees and merge longitude columns. No rides are dropped.
+mode.weighted_heavy_hitters.threshold = 0.005
+
+data_bits = 20
+hist_buckets = 1
+
+server_0 = "0.0.0.0:8000"
+server_1 = "0.0.0.0:8001"
+
+add_report_share_batch_size = 1000
+# Larger batches exceed tarpc's 8 MiB frame limit (100000 fails on the month dataset).
+query_flp_batch_size = 50000
+zipf_unique_buckets = 1000
+zipf_exponent = 1.03
+
+[dataset]
+path = "data/mosaic/sample_busiest_week.csv"
+encoding.morton = { min_lat = 29.9005, max_lat = 30.894868911, min_lon = -98.0505, max_lon = -97.056131089, axis_bits = 10 }
+weight = "constant"

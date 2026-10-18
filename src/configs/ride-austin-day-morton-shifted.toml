@@ -1,0 +1,28 @@
+# The 0.001 deg Morton box of ride-austin-*-morton.toml shifted by half a cell (+0.0005 deg on
+# both axes), 10 bits per axis (data_bits = 20).
+#
+# WARNING: the pickups are rounded to 0.001 deg, so after this shift every cell edge falls exactly
+# on a data coordinate, and floating-point rounding decides which of two cells a ride lands in.
+# Some cells collect two rows or columns of pickups and others none (4962 instead of 6583
+# distinct cells on the day file), so the 19 / 13 / 17 cells (day / week / month) it finds are an
+# artifact of rounding, not of the shift. Rust and scripts/check_heavy_hitters.py round the same
+# way, so their results still match. Any shift smaller than half a cell leaves the cells
+# unchanged on this data; alignment matters only for cells larger than the 0.001 deg data step.
+mode.weighted_heavy_hitters.threshold = 0.005
+
+data_bits = 20
+hist_buckets = 1
+
+server_0 = "0.0.0.0:8000"
+server_1 = "0.0.0.0:8001"
+
+add_report_share_batch_size = 1000
+# Larger batches exceed tarpc's 8 MiB frame limit (100000 fails on the month dataset).
+query_flp_batch_size = 50000
+zipf_unique_buckets = 1000
+zipf_exponent = 1.03
+
+[dataset]
+path = "data/mosaic/sample_busiest_day.csv"
+encoding.morton = { min_lat = 29.901, max_lat = 30.925, min_lon = -98.05, max_lon = -97.026, axis_bits = 10 }
+weight = "constant"

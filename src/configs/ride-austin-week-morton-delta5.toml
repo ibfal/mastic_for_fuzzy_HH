@@ -1,0 +1,25 @@
+# Morton cells the size of Mosaic's fuzzy neighbourhood. data/mosaic/results.json uses
+# delta = 5 (L-infinity, on the 0.001 deg grid) and match_threshold = 1180 over 59040 points,
+# i.e. this week dataset: a point is heavy when 1180 pickups lie within 5 grid steps of it, an
+# 11 x 11 block of 0.001 deg cells. Here each cell is such a block (0.011 deg, about 1.2 x 1.1 km),
+# 7 bits per axis (data_bits = 14), and threshold 0.02 gives floor(0.02 * 59040) = 1180.
+# Unlike Mosaic the blocks are fixed, not centred on every point. Finds 10 cells; the centre of
+# each is one of Mosaic's 1100 heavy points. No rides are dropped.
+mode.weighted_heavy_hitters.threshold = 0.02
+
+data_bits = 14
+hist_buckets = 1
+
+server_0 = "0.0.0.0:8000"
+server_1 = "0.0.0.0:8001"
+
+add_report_share_batch_size = 1000
+# Larger batches exceed tarpc's 8 MiB frame limit (100000 fails on the month dataset).
+query_flp_batch_size = 50000
+zipf_unique_buckets = 1000
+zipf_exponent = 1.03
+
+[dataset]
+path = "data/mosaic/sample_busiest_week.csv"
+encoding.morton = { min_lat = 29.9005, max_lat = 31.3085, min_lon = -98.0505, max_lon = -96.6425, axis_bits = 7 }
+weight = "constant"

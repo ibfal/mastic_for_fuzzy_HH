@@ -10,7 +10,7 @@ import csv
 import os
 import sys
 
-from check_heavy_hitters import make_encoder
+from check_heavy_hitters import MORTON_BBOX, make_encoder
 
 # (name, lat, lon, rides). Coordinates use 3 decimals like the RideAustin data. Every landmark must
 # fall in a different cell, or their counts merge; `check_distinct_cells` below verifies this.
@@ -33,6 +33,7 @@ ENCODINGS = [
     ("mosaic_grid", {}),
     ("geohash", {"prefix": "9v6", "bits": 20}),
     ("h3", {"prefix": "82489ffffffffff", "resolution": 9}),
+    ("morton", {"bbox": MORTON_BBOX, "axis_bits": 10}),
 ]
 
 

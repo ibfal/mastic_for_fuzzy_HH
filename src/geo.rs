@@ -27,6 +27,15 @@ pub fn encoder(encoding: &Encoding) -> Box<dyn LocationEncoder> {
         Encoding::MosaicGrid => Box::new(MosaicGrid),
         Encoding::Geohash { prefix, bits } => Box::new(Geohash::new(prefix, *bits)),
         Encoding::H3 { prefix, resolution } => Box::new(H3::new(prefix, *resolution)),
+        Encoding::Morton {
+            min_lat,
+            max_lat,
+            min_lon,
+            max_lon,
+            axis_bits,
+        } => Box::new(Morton::new(
+            *min_lat, *max_lat, *min_lon, *max_lon, *axis_bits,
+        )),
     }
 }
 
@@ -303,5 +312,105 @@ impl LocationEncoder for H3 {
 
     fn label(&self, bits: &[bool]) -> String {
         self.cell(bits).to_string()
+    }
+}
+
+/// Morton (Z-order) code over a configurable bounding box. Each axis of `[min, max)` is split into
+/// `2^axis_bits` equal cells and the two cell indices are interleaved with [`interleave`]. A prefix
+/// of `2j` bits names an aligned block of `2^(axis_bits - j)` by `2^(axis_bits - j)` cells, so
+/// counts nest exactly. Points outside the box are not encoded.
+pub struct Morton {
+    min_lat: f64,
+    max_lat: f64,
+    min_lon: f64,
+    max_lon: f64,
+    axis_bits: usize,
+}
+
+impl Morton {
+    pub fn new(min_lat: f64, max_lat: f64, min_lon: f64, max_lon: f64, axis_bits: usize) -> Self {
+        assert!(
+            [min_lat, max_lat, min_lon, max_lon]
+                .iter()
+                .all(|v| v.is_finite())
+                && min_lat < max_lat
+                && min_lon < max_lon,
+            "invalid Morton bounding box: lat [{min_lat}, {max_lat}), lon [{min_lon}, {max_lon})"
+        );
+        assert!(
+            (1..=31).contains(&axis_bits),
+            "Morton axis_bits must be between 1 and 31, got {axis_bits}"
+        );
+        Self {
+            min_lat,
+            max_lat,
+            min_lon,
+            max_lon,
+            axis_bits,
+        }
+    }
+
+    /// Index of the cell containing `v` on the axis `[min, max)`, or `None` outside it (including
+    /// NaN). scripts/check_heavy_hitters.py evaluates the same expression in the same order, so
+    /// both produce identical bits.
+    fn axis_cell(v: f64, min: f64, max: f64, axis_bits: usize) -> Option<u32> {
+        if !(min <= v && v < max) {
+            return None;
+        }
+        let cells = (1u64 << axis_bits) as f64;
+        let idx = ((v - min) / (max - min) * cells).floor() as u64;
+        // Rounding can put a point just below `max` at index `cells`.
+        Some(idx.min((1u64 << axis_bits) - 1) as u32)
+    }
+
+    /// The cell `(lat_idx, lon_idx)` containing a point, or `None` if it lies outside the box.
+    pub fn to_cell(&self, lat: f64, lon: f64) -> Option<(u32, u32)> {
+        Some((
+            Self::axis_cell(lat, self.min_lat, self.max_lat, self.axis_bits)?,
+            Self::axis_cell(lon, self.min_lon, self.max_lon, self.axis_bits)?,
+        ))
+    }
+
+    /// Bounds `((min_lat, max_lat), (min_lon, max_lon))` of a cell.
+    pub fn cell_box(&self, lat_idx: u32, lon_idx: u32) -> ((f64, f64), (f64, f64)) {
+        let cells = (1u64 << self.axis_bits) as f64;
+        let edge = |min: f64, max: f64, i: u32| min + (max - min) * i as f64 / cells;
+        (
+            (
+                edge(self.min_lat, self.max_lat, lat_idx),
+                edge(self.min_lat, self.max_lat, lat_idx + 1),
+            ),
+            (
+                edge(self.min_lon, self.max_lon, lon_idx),
+                edge(self.min_lon, self.max_lon, lon_idx + 1),
+            ),
+        )
+    }
+
+    fn cell_of(&self, bits: &[bool]) -> (u32, u32) {
+        assert_eq!(bits.len(), self.depth());
+        deinterleave(bits)
+    }
+}
+
+impl LocationEncoder for Morton {
+    fn depth(&self) -> usize {
+        2 * self.axis_bits
+    }
+
+    fn encode(&self, lat: f64, lon: f64) -> Option<Vec<bool>> {
+        let (lat_idx, lon_idx) = self.to_cell(lat, lon)?;
+        Some(interleave(lat_idx, lon_idx, self.axis_bits))
+    }
+
+    fn decode(&self, bits: &[bool]) -> (f64, f64) {
+        let (lat_idx, lon_idx) = self.cell_of(bits);
+        let ((lat_lo, lat_hi), (lon_lo, lon_hi)) = self.cell_box(lat_idx, lon_idx);
+        ((lat_lo + lat_hi) / 2.0, (lon_lo + lon_hi) / 2.0)
+    }
+
+    fn label(&self, bits: &[bool]) -> String {
+        let (lat_idx, lon_idx) = self.cell_of(bits);
+        format!("morton ({lat_idx}, {lon_idx})")
     }
 }

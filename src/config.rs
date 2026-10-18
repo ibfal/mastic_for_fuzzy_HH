@@ -51,6 +51,23 @@ pub enum Encoding {
         /// Resolution of the cells to count, 0 (coarsest) to 15.
         resolution: u8,
     },
+
+    /// Morton (Z-order) code over a bounding box. Each axis is split into `2^axis_bits` equal
+    /// cells, `(max - min) / 2^axis_bits` degrees wide, and the two cell indices are interleaved,
+    /// longitude first, most significant bit first (`data_bits = 2 * axis_bits`). Points outside
+    /// the box are dropped.
+    Morton {
+        /// South edge of the box (inclusive), in degrees.
+        min_lat: f64,
+        /// North edge of the box (exclusive), in degrees.
+        max_lat: f64,
+        /// West edge of the box (inclusive), in degrees.
+        min_lon: f64,
+        /// East edge of the box (exclusive), in degrees.
+        max_lon: f64,
+        /// Bits per axis, 1 to 31.
+        axis_bits: usize,
+    },
 }
 
 /// What each ride contributes to the histogram `beta`.

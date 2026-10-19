@@ -20,6 +20,10 @@ pub trait LocationEncoder: Sync {
 
     /// Human-readable name of the cell named by a full-length bit string.
     fn label(&self, bits: &[bool]) -> String;
+
+    /// Outline of the region named by a prefix of any length up to `depth`, as polygons of
+    /// `(lat, lon)` vertices. Used to draw the tree crawl; empty if no point encodes to it.
+    fn region(&self, prefix: &[bool]) -> Vec<Vec<(f64, f64)>>;
 }
 
 pub fn encoder(encoding: &Encoding) -> Box<dyn LocationEncoder> {
@@ -59,6 +63,29 @@ pub fn deinterleave(bits: &[bool]) -> (u32, u32) {
     bits.chunks(2).fold((0, 0), |(lat, lon), pair| {
         ((lat << 1) | pair[1] as u32, (lon << 1) | pair[0] as u32)
     })
+}
+
+/// Index ranges `((lat_lo, lat_hi), (lon_lo, lon_hi))`, half open, of the cells under a Morton
+/// prefix of any length. Longitude takes the even positions and latitude the odd ones, so an odd
+/// prefix has one more longitude bit.
+fn prefix_ranges(prefix: &[bool], axis_bits: usize) -> ((u32, u32), (u32, u32)) {
+    let axis = |offset: usize| {
+        let bits: Vec<bool> = prefix.iter().skip(offset).step_by(2).copied().collect();
+        let v = bits.iter().fold(0u32, |v, &b| (v << 1) | b as u32);
+        let shift = axis_bits - bits.len();
+        (v << shift, (v + 1) << shift)
+    };
+    (axis(1), axis(0))
+}
+
+/// Rectangle with the given `(min, max)` latitude and longitude.
+fn rect((lat_lo, lat_hi): (f64, f64), (lon_lo, lon_hi): (f64, f64)) -> Vec<(f64, f64)> {
+    vec![
+        (lat_lo, lon_lo),
+        (lat_lo, lon_hi),
+        (lat_hi, lon_hi),
+        (lat_hi, lon_lo),
+    ]
 }
 
 /// The grid used by Mosaic for RideAustin: 0.001 degree cells, 11 bits per axis, with the origin
@@ -118,6 +145,21 @@ impl LocationEncoder for MosaicGrid {
     fn label(&self, bits: &[bool]) -> String {
         let (lat_grid, lon_grid) = Self::bits_to_grid(bits);
         format!("grid ({lat_grid}, {lon_grid})")
+    }
+
+    fn region(&self, prefix: &[bool]) -> Vec<Vec<(f64, f64)>> {
+        // Cell i holds the points that round to i, so it spans i - 0.5 to i + 0.5. Indices past
+        // the last cell are never produced.
+        let ((lat_lo, lat_hi), (lon_lo, lon_hi)) = prefix_ranges(prefix, Self::AXIS_BITS);
+        let (lat_hi, lon_hi) = (lat_hi.min(Self::GRID_SIZE), lon_hi.min(Self::GRID_SIZE));
+        if lat_lo >= lat_hi || lon_lo >= lon_hi {
+            return vec![];
+        }
+        let edge = |min: f64, i: u32| min + (i as f64 - 0.5) / Self::SCALE;
+        vec![rect(
+            (edge(Self::MIN_LAT, lat_lo), edge(Self::MIN_LAT, lat_hi)),
+            (edge(Self::MIN_LON, lon_lo), edge(Self::MIN_LON, lon_hi)),
+        )]
     }
 }
 
@@ -229,6 +271,11 @@ impl LocationEncoder for Geohash {
     fn label(&self, bits: &[bool]) -> String {
         Self::bits_to_base32(&self.full_bits(bits))
     }
+
+    fn region(&self, prefix: &[bool]) -> Vec<Vec<(f64, f64)>> {
+        let (lat, lon) = Self::bits_to_box(&[&self.prefix[..], prefix].concat());
+        vec![rect(lat, lon)]
+    }
 }
 
 /// Uber's H3 hexagonal grid. A cell index stores one 3-bit digit per resolution below its base
@@ -270,17 +317,29 @@ impl H3 {
         3 * (15 - r as u64)
     }
 
-    pub fn cell(&self, bits: &[bool]) -> CellIndex {
-        assert_eq!(bits.len(), self.depth());
+    fn digit(bits: &[bool]) -> u64 {
+        bits.iter().fold(0, |v, &b| (v << 1) | b as u64)
+    }
+
+    /// The cell below `prefix` with the given digits, one per sent resolution, at the resolution
+    /// the last digit reaches. `None` if a digit is 7 or the cell is otherwise invalid.
+    fn cell_with_digits(&self, digits: &[u64]) -> Option<CellIndex> {
+        let res = u8::from(self.prefix.resolution()) as u64 + digits.len() as u64;
         let mut index = u64::from(self.prefix);
         index &= !(0xf << Self::RES_OFFSET);
-        index |= (u8::from(self.resolution) as u64) << Self::RES_OFFSET;
-        for (r, digit) in self.sent_resolutions().zip(bits.chunks(3)) {
-            let digit = digit.iter().fold(0, |v, &b| (v << 1) | b as u64);
+        index |= res << Self::RES_OFFSET;
+        for (r, &digit) in self.sent_resolutions().zip(digits) {
             index &= !(0b111 << Self::digit_offset(r));
             index |= digit << Self::digit_offset(r);
         }
-        CellIndex::try_from(index).expect("bits do not name a valid H3 cell")
+        CellIndex::try_from(index).ok()
+    }
+
+    pub fn cell(&self, bits: &[bool]) -> CellIndex {
+        assert_eq!(bits.len(), self.depth());
+        let digits: Vec<u64> = bits.chunks(3).map(Self::digit).collect();
+        self.cell_with_digits(&digits)
+            .expect("bits do not name a valid H3 cell")
     }
 }
 
@@ -312,6 +371,26 @@ impl LocationEncoder for H3 {
 
     fn label(&self, bits: &[bool]) -> String {
         self.cell(bits).to_string()
+    }
+
+    fn region(&self, prefix: &[bool]) -> Vec<Vec<(f64, f64)>> {
+        let (whole, partial) = prefix.split_at(prefix.len() / 3 * 3);
+        let digits: Vec<u64> = whole.chunks(3).map(Self::digit).collect();
+        let cells: Vec<CellIndex> = if partial.is_empty() {
+            self.cell_with_digits(&digits).into_iter().collect()
+        } else {
+            // A level inside a digit stands for the children whose next digit starts with these
+            // bits; digit 7 does not exist.
+            let free = 3 - partial.len();
+            let first = Self::digit(partial) << free;
+            (first..first + (1 << free))
+                .filter_map(|d| self.cell_with_digits(&[&digits[..], &[d]].concat()))
+                .collect()
+        };
+        cells
+            .into_iter()
+            .map(|c| c.boundary().iter().map(|p| (p.lat(), p.lng())).collect())
+            .collect()
     }
 }
 
@@ -412,5 +491,12 @@ impl LocationEncoder for Morton {
     fn label(&self, bits: &[bool]) -> String {
         let (lat_idx, lon_idx) = self.cell_of(bits);
         format!("morton ({lat_idx}, {lon_idx})")
+    }
+
+    fn region(&self, prefix: &[bool]) -> Vec<Vec<(f64, f64)>> {
+        let ((lat_lo, lat_hi), (lon_lo, lon_hi)) = prefix_ranges(prefix, self.axis_bits);
+        let ((south, _), (west, _)) = self.cell_box(lat_lo, lon_lo);
+        let ((_, north), (_, east)) = self.cell_box(lat_hi - 1, lon_hi - 1);
+        vec![rect((south, north), (west, east))]
     }
 }

@@ -1,7 +1,7 @@
 use std::fs;
 
 use clap::{App, Arg};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Parameters used by the driver program to generate test data.
 #[derive(Deserialize, Debug)]
@@ -27,7 +27,7 @@ pub enum Mode {
 }
 
 /// How a pickup location is encoded into the Mastic input string `alpha`.
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum Encoding {
     /// Mosaic's RideAustin grid: 0.001 degree cells, 11 bits per axis (`data_bits = 22`).
@@ -123,6 +123,10 @@ pub struct Config {
 
     /// Optional ride dataset. When set, the driver sends one report per ride.
     pub dataset: Option<DatasetConfig>,
+
+    /// Driver only (`--export`): file to write the crawl to as JSON, for viz/index.html.
+    #[serde(skip)]
+    pub export: Option<String>,
 }
 
 pub fn get_config(filename: &str) -> Config {
@@ -187,6 +191,14 @@ pub fn get_args(
                 .required(true)
                 .takes_value(true),
         );
+        flags = flags.arg(
+            Arg::with_name("export")
+                .long("export")
+                .value_name("FILENAME")
+                .help("Write every crawl level and the heavy hitters to this JSON file")
+                .required(false)
+                .takes_value(true),
+        );
     }
     if get_malicious {
         flags = flags.arg(
@@ -219,6 +231,7 @@ pub fn get_args(
     let mut n_reqs = 0;
     if get_n_reqs {
         n_reqs = flags.value_of("num_clients").unwrap().parse().unwrap();
+        config.export = flags.value_of("export").map(String::from);
     }
 
     let mut malicious = 0.0;

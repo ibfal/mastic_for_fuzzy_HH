@@ -22,3 +22,5 @@ Cargo.lock
 !data/mosaic/*.json
 .venv/
 __pycache__/
+*.log
+viz/logs/

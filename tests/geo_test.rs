@@ -248,3 +248,100 @@ fn morton_rejects_points_outside_bbox() {
 fn morton_rejects_inverted_box() {
     Morton::new(30.9245, 29.9005, -98.0505, -97.0265, 10);
 }
+
+/// Bounding box `((min_lat, max_lat), (min_lon, max_lon))` of a region's polygons.
+fn region_box(region: &[Vec<(f64, f64)>]) -> ((f64, f64), (f64, f64)) {
+    let points = region.iter().flatten();
+    let fold = |f: fn(&(f64, f64)) -> f64| {
+        points
+            .clone()
+            .map(f)
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
+                (lo.min(v), hi.max(v))
+            })
+    };
+    (fold(|p| p.0), fold(|p| p.1))
+}
+
+fn contains(
+    ((lat_lo, lat_hi), (lon_lo, lon_hi)): ((f64, f64), (f64, f64)),
+    lat: f64,
+    lon: f64,
+) -> bool {
+    let eps = 1e-9;
+    lat_lo - eps <= lat && lat <= lat_hi + eps && lon_lo - eps <= lon && lon <= lon_hi + eps
+}
+
+/// For every prefix of a pickup's encoding, the region contains the pickup and its children's
+/// regions; for the full encoding it contains the decoded center.
+fn check_regions_nest(enc: &dyn LocationEncoder, lat: f64, lon: f64) {
+    let bits = enc.encode(lat, lon).unwrap();
+    for len in 0..=bits.len() {
+        let outer = region_box(&enc.region(&bits[..len]));
+        assert!(contains(outer, lat, lon), "prefix of length {len}");
+        if len < bits.len() {
+            for b in [false, true] {
+                let child = enc.region(&[&bits[..len], &[b]].concat());
+                for &(clat, clon) in child.iter().flatten() {
+                    assert!(
+                        contains(outer, clat, clon),
+                        "child of prefix of length {len}"
+                    );
+                }
+            }
+        }
+    }
+    let (clat, clon) = enc.decode(&bits);
+    assert!(contains(region_box(&enc.region(&bits)), clat, clon));
+}
+
+#[test]
+fn rectangular_regions_nest() {
+    let encoders: [Box<dyn LocationEncoder>; 3] = [
+        Box::new(MosaicGrid),
+        Box::new(Geohash::new("9v6", 20)),
+        Box::new(recommended_morton()),
+    ];
+    for enc in &encoders {
+        for &(lat, lon) in &[(30.265, -97.732), (30.203, -97.667), (30.402, -97.725)] {
+            check_regions_nest(enc.as_ref(), lat, lon);
+        }
+    }
+}
+
+#[test]
+fn mosaic_grid_region_is_rounding_cell() {
+    // Cell (998, 1011) holds the points that round to it: half a cell on either side.
+    let region = MosaicGrid.region(&MosaicGrid::grid_to_bits(998, 1011));
+    let ((lat_lo, lat_hi), (lon_lo, lon_hi)) = region_box(&region);
+    assert!((lat_lo - 30.2645).abs() < 1e-9 && (lat_hi - 30.2655).abs() < 1e-9);
+    assert!((lon_lo - -97.7325).abs() < 1e-9 && (lon_hi - -97.7315).abs() < 1e-9);
+    // The grid has 2000 of the 2048 possible cells per axis. Longitude indices starting with six
+    // ones (2016 and up, the first 11 interleaved bits) name nothing; five ones still overlap it.
+    let east = MosaicGrid::grid_to_bits(0, 2047);
+    assert!(MosaicGrid.region(&east[..11]).is_empty());
+    assert_eq!(MosaicGrid.region(&east[..9]).len(), 1);
+}
+
+#[test]
+fn h3_regions() {
+    let h3 = H3::new("82489ffffffffff", 9);
+    let bits = h3.encode(30.265, -97.732).unwrap();
+    // The empty prefix is the prefix cell itself and the full encoding is the resolution-9 cell.
+    assert_eq!(h3.region(&[]).len(), 1);
+    assert_eq!(h3.region(&bits).len(), 1);
+    assert_eq!(h3.region(&bits)[0].len(), 6);
+    // Inside a digit a prefix stands for the children whose digit starts with its bits: four for
+    // one bit; for two bits, two, or one when they are 11 (digit 7 does not exist).
+    assert_eq!(h3.region(&[false]).len(), 4);
+    assert_eq!(h3.region(&[true]).len(), 3);
+    assert_eq!(h3.region(&[false, true]).len(), 2);
+    assert_eq!(h3.region(&[true, true]).len(), 1);
+    assert!(h3.region(&[true, true, true]).is_empty());
+    // Hexagons do not nest exactly, but every prefix's region still contains the pickup's cell
+    // center, at least approximately: check the full cell's center lies in the union's box.
+    let (lat, lon) = h3.decode(&bits);
+    for len in 0..=bits.len() {
+        assert!(contains(region_box(&h3.region(&bits[..len])), lat, lon));
+    }
+}

@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mastic Encodings Crawl</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f6f3;
+    --panel: #ffffff;
+    --text: #1d1d1b;
+    --muted: #6b6b66;
+    --border: #deded8;
+    --accent: #2457c5;
+    --heavy-lo: 214 70% 78%;
+    --heavy-hi: 222 75% 34%;
+    --pruned: #9a9a93;
+    --note-bg: #fff6dc;
+    --note-text: #6a5100;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141413;
+      --panel: #1e1e1c;
+      --text: #ececE8;
+      --muted: #a1a19b;
+      --border: #34342f;
+      --accent: #7ea2ff;
+      --heavy-lo: 214 60% 40%;
+      --heavy-hi: 210 90% 72%;
+      --pruned: #8a8a83;
+      --note-bg: #3a3218;
+      --note-text: #f1d98a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141413;
+    --panel: #1e1e1c;
+    --text: #ececE8;
+    --muted: #a1a19b;
+    --border: #34342f;
+    --accent: #7ea2ff;
+    --heavy-lo: 214 60% 40%;
+    --heavy-hi: 210 90% 72%;
+    --pruned: #8a8a83;
+    --note-bg: #3a3218;
+    --note-text: #f1d98a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 20px;
+    align-items: center;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  label { color: var(--muted); font-size: 13px; }
+  select, button {
+    font: inherit;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  .crawl { display: flex; align-items: center; gap: 8px; flex: 1 1 320px; min-width: 0; }
+  .crawl input[type=range] { flex: 1; min-width: 80px; accent-color: var(--accent); }
+  .level-readout { font-variant-numeric: tabular-nums; min-width: 72px; }
+  .legend { display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: 12px; }
+  .swatch { display: inline-block; width: 14px; height: 10px; vertical-align: -1px; margin-right: 4px; border-radius: 2px; }
+  .swatch.heavy { background: linear-gradient(90deg, hsl(var(--heavy-lo)), hsl(var(--heavy-hi))); }
+  .swatch.pruned { border: 1.5px dashed var(--pruned); }
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 8px;
+    padding: 8px;
+    min-height: 0;
+  }
+  .pane {
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .pane-head { padding: 8px 10px 6px; border-bottom: 1px solid var(--border); }
+  .pane-head select { max-width: 100%; font-weight: 600; }
+  .stats { margin-top: 4px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .stats b { color: var(--text); font-weight: 600; }
+  .note { margin-top: 4px; font-size: 12px; padding: 2px 6px; border-radius: 4px; background: var(--note-bg); color: var(--note-text); }
+  .note:empty { display: none; }
+  .map { flex: 1; min-height: 220px; background: var(--bg); }
+  .empty {
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+    margin: auto;
+    max-width: 560px;
+    padding: 24px;
+    color: var(--muted);
+  }
+  .empty code { color: var(--text); }
+  .leaflet-tooltip { font: 12px/1.35 system-ui, sans-serif; }
+  .leaflet-container { font: inherit; }
+  @media (max-width: 760px) {
+    main { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: minmax(360px, 70vh); }
+    header { padding: 10px 16px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mastic heavy-hitters crawl, by encoding</h1>
+  <div>
+    <label for="dataset">Dataset</label>
+    <select id="dataset"></select>
+  </div>
+  <div class="crawl">
+    <button id="play" title="Step through the levels (space)">Play</button>
+    <input id="level" type="range" min="1" max="1" value="1" aria-label="Crawl level">
+    <span class="level-readout" id="level-readout">level 1</span>
+  </div>
+  <div class="legend">
+    <span><span class="swatch heavy"></span>heavy: expanded</span>
+    <span><span class="swatch pruned"></span>below threshold: pruned</span>
+  </div>
+  <button id="fit" title="Zoom to the heavy hitters">Fit</button>
+</header>
+<main id="grid"></main>
+
+<!-- scripts/build_viz.py replaces null with every run, for the single-file copy. -->
+<script id="inline-runs" type="application/json">null</script>
+<script>
+"use strict";
+
+// Default run per pane: <dataset>-<encoding>.toml from scripts/run_encodings.sh.
+const PANES = [
+  { kind: "mosaic_grid", suffix: "mosaic-grid", title: "Mosaic grid" },
+  { kind: "geohash", suffix: "geohash", title: "Geohash" },
+  { kind: "h3", suffix: "h3", title: "H3" },
+  { kind: "morton", suffix: "morton", title: "Morton" },
+];
+
+const store = {
+  get(key) { try { return JSON.parse(localStorage.getItem("mastic-viz:" + key)); } catch { return null; } },
+  set(key, value) { try { localStorage.setItem("mastic-viz:" + key, JSON.stringify(value)); } catch {} },
+};
+
+function kindOf(encoding) {
+  if (typeof encoding === "string") return encoding;
+  if (encoding && typeof encoding === "object") return Object.keys(encoding)[0];
+  return "unknown";
+}
+
+function datasetLabel(path) {
+  return (path || "synthetic").split("/").pop().replace(/\.csv$/, "");
+}
+
+// Served over http: read viz/results live. Opened from disk: use the inlined copy.
+async function loadRuns() {
+  try {
+    const manifest = await (await fetch("results/manifest.json", { cache: "no-store" })).json();
+    const runs = {};
+    await Promise.all(manifest.runs.map(async (r) => {
+      runs[r.name] = await (await fetch("results/" + r.file, { cache: "no-store" })).json();
+    }));
+    if (Object.keys(runs).length) return { runs, source: "results/" };
+  } catch {}
+  try {
+    const inline = JSON.parse(document.getElementById("inline-runs").textContent);
+    if (inline && Object.keys(inline).length) return { runs: inline, source: "inlined" };
+  } catch {}
+  return { runs: {}, source: null };
+}
+
+function css(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// Sequential color for a heavy prefix: log of its count against the largest count shown.
+function heavyColor(count, max) {
+  const t = max > 1 ? Math.log(count) / Math.log(max) : 1;
+  const [h0, s0, l0] = css("--heavy-lo").split(/\s+/).map(parseFloat);
+  const [h1, s1, l1] = css("--heavy-hi").split(/\s+/).map(parseFloat);
+  const mix = (a, b) => a + (b - a) * Math.min(1, Math.max(0, t));
+  return `hsl(${mix(h0, h1)} ${mix(s0, s1)}% ${mix(l0, l1)}%)`;
+}
+
+function levelNote(run, level) {
+  const kind = kindOf(run.encoding);
+  if (kind === "h3" && level % 3 !== 0) {
+    const res = run.encoding.h3;
+    const prefixRes = res.resolution - run.data_bits / 3;
+    return `Inside an H3 digit (bit ${level % 3} of 3 for resolution ${prefixRes + Math.ceil(level / 3)}): ` +
+      "each candidate is a group of child hexagons, not a cell.";
+  }
+  if (level === run.data_bits) return "Final level: the heavy prefixes are the output.";
+  return "";
+}
+
+function fmt(n) { return n.toLocaleString("en-US"); }
+
+const state = {
+  runs: {},
+  datasets: [],
+  dataset: null,
+  level: 1,
+  panes: [],
+  syncing: false,
+  timer: null,
+};
+
+function tiles() {
+  const dark = document.documentElement.dataset.theme === "dark" ||
+    (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+  return L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png`, {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: "abcd",
+    maxZoom: 19,
+  });
+}
+
+function buildPanes() {
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+  state.panes = PANES.map((spec, i) => {
+    const el = document.createElement("section");
+    el.className = "pane";
+    el.innerHTML = `
+      <div class="pane-head">
+        <select aria-label="Run shown in pane ${i + 1}"></select>
+        <div class="stats"></div>
+        <div class="note"></div>
+      </div>
+      <div class="map"></div>`;
+    grid.appendChild(el);
+    const map = L.map(el.querySelector(".map"), { zoomSnap: 0.25, preferCanvas: false });
+    tiles().addTo(map);
+    const layer = L.featureGroup().addTo(map);
+    const pane = { spec, el, map, layer, select: el.querySelector("select"), run: null, runName: null };
+    pane.select.addEventListener("change", () => {
+      pane.runName = pane.select.value || null;
+      store.set(`pane-${i}-${state.dataset}`, pane.runName);
+      updateSlider();
+      render();
+    });
+    map.on("move", () => syncFrom(pane));
+    return pane;
+  });
+}
+
+function syncFrom(source) {
+  if (state.syncing) return;
+  state.syncing = true;
+  const center = source.map.getCenter();
+  const zoom = source.map.getZoom();
+  for (const p of state.panes) if (p !== source) p.map.setView(center, zoom, { animate: false });
+  state.syncing = false;
+}
+
+function runsForDataset(dataset) {
+  return Object.entries(state.runs).filter(([, r]) => (r.dataset || "synthetic") === dataset);
+}
+
+function chooseDataset(dataset) {
+  state.dataset = dataset;
+  store.set("dataset", dataset);
+  const runs = runsForDataset(dataset);
+  state.panes.forEach((pane, i) => {
+    pane.select.innerHTML = "";
+    const none = new Option(`${pane.spec.title}: no run`, "");
+    pane.select.add(none);
+    for (const [name, run] of runs) pane.select.add(new Option(`${name}  (${run.data_bits} bits)`, name));
+    const remembered = store.get(`pane-${i}-${dataset}`);
+    const byName = runs.find(([n]) => n.endsWith("-" + pane.spec.suffix));
+    const byKind = runs.find(([, r]) => kindOf(r.encoding) === pane.spec.kind);
+    const pick = runs.find(([n]) => n === remembered) || byName || byKind;
+    pane.runName = pick ? pick[0] : null;
+    pane.select.value = pane.runName || "";
+  });
+  updateSlider();
+  render();
+  fit();
+}
+
+function maxDepth() {
+  return Math.max(1, ...state.panes.map((p) => (p.runName ? state.runs[p.runName].levels.length : 1)));
+}
+
+function updateSlider() {
+  const slider = document.getElementById("level");
+  slider.max = maxDepth();
+  if (state.level > slider.max) state.level = +slider.max;
+  slider.value = state.level;
+}
+
+function render() {
+  document.getElementById("level-readout").textContent = `level ${state.level} / ${maxDepth()}`;
+  // One color scale for all panes so the same count looks the same everywhere.
+  let maxCount = 1;
+  const shown = state.panes.map((p) => {
+    const run = p.runName ? state.runs[p.runName] : null;
+    if (!run) return null;
+    const lvl = run.levels[Math.min(state.level, run.levels.length) - 1];
+    for (const c of lvl.candidates) if (c.heavy) maxCount = Math.max(maxCount, c.count);
+    return { run, lvl };
+  });
+  const pruned = css("--pruned");
+
+  state.panes.forEach((pane, i) => {
+    pane.layer.clearLayers();
+    const stats = pane.el.querySelector(".stats");
+    const note = pane.el.querySelector(".note");
+    const s = shown[i];
+    if (!s) {
+      stats.textContent = "No saved run for this encoding. Run scripts/run_encodings.sh.";
+      note.textContent = "";
+      return;
+    }
+    const { run, lvl } = s;
+    const heavy = lvl.candidates.filter((c) => c.heavy);
+    const atEnd = state.level > run.levels.length;
+    const rides = run.rides ? ` · <b>${fmt(run.rides.dropped)}</b> of ${fmt(run.rides.total)} rides outside the area` : "";
+    stats.innerHTML =
+      `level <b>${lvl.level}</b>/${run.data_bits}${atEnd ? " (final)" : ""} · ` +
+      `<b>${lvl.candidates.length}</b> candidates · <b>${heavy.length}</b> heavy · ` +
+      `threshold <b>${fmt(run.threshold)}</b> of ${fmt(run.num_clients)} clients${rides} · ` +
+      `${(lvl.seconds * 1000).toFixed(0)} ms`;
+    note.textContent = levelNote(run, lvl.level);
+
+    // Pruned first so heavy regions draw on top.
+    const ordered = [...lvl.candidates].sort((a, b) => a.heavy - b.heavy);
+    for (const c of ordered) {
+      if (!c.region.length) continue;
+      const style = c.heavy
+        ? { color: heavyColor(c.count, maxCount), weight: 1.2, fillColor: heavyColor(c.count, maxCount), fillOpacity: 0.55 }
+        : { color: pruned, weight: 1, dashArray: "4 3", fillColor: pruned, fillOpacity: 0.06 };
+      const poly = L.polygon(c.region.map((ring) => [ring]), style);
+      const hit = lvl.level === run.data_bits && c.heavy ? run.heavy_hitters.find((h) => h.bits === c.bits) : null;
+      poly.bindTooltip(
+        `<b>${fmt(c.count)}</b> client${c.count === 1 ? "" : "s"} · ${c.heavy ? "heavy" : "pruned"}<br>` +
+        `prefix <code>${c.bits}</code>` + (hit && hit.label ? `<br>${hit.label}` : ""),
+        { sticky: true });
+      pane.layer.addLayer(poly);
+    }
+  });
+}
+
+function fit() {
+  // Zoom to the final heavy hitters of every pane; fall back to whatever is drawn.
+  let bounds = null;
+  for (const p of state.panes) {
+    const run = p.runName ? state.runs[p.runName] : null;
+    if (!run) continue;
+    const last = run.levels[run.levels.length - 1];
+    for (const c of last.candidates.filter((c) => c.heavy)) {
+      for (const ring of c.region) {
+        const b = L.latLngBounds(ring);
+        bounds = bounds ? bounds.extend(b) : b;
+      }
+    }
+  }
+  if (!bounds) for (const p of state.panes) if (p.layer.getLayers().length) {
+    const b = p.layer.getBounds();
+    bounds = bounds ? bounds.extend(b) : b;
+  }
+  if (bounds) state.panes[0].map.fitBounds(bounds.pad(0.15));
+  else for (const p of state.panes) p.map.setView([30.27, -97.74], 10);
+}
+
+function setLevel(level) {
+  state.level = Math.max(1, Math.min(maxDepth(), level));
+  document.getElementById("level").value = state.level;
+  render();
+}
+
+function togglePlay() {
+  const button = document.getElementById("play");
+  if (state.timer) {
+    clearInterval(state.timer);
+    state.timer = null;
+    button.textContent = "Play";
+    return;
+  }
+  if (state.level >= maxDepth()) setLevel(1);
+  button.textContent = "Pause";
+  state.timer = setInterval(() => {
+    if (state.level >= maxDepth()) return togglePlay();
+    setLevel(state.level + 1);
+  }, 700);
+}
+
+function showEmpty() {
+  document.getElementById("grid").innerHTML = `
+    <div class="empty">
+      <p><b>No saved crawls found.</b></p>
+      <p>Run the encodings and save their crawls, for example:</p>
+      <p><code>scripts/run_encodings.sh synthetic-ten-locations</code></p>
+      <p>Then either serve this folder (<code>python3 -m http.server -d viz 8080</code> and open
+      <code>http://localhost:8080</code>) or open <code>viz/dist/mastic-crawl.html</code>,
+      which has the runs built in.</p>
+    </div>`;
+}
+
+async function main() {
+  const { runs, source } = await loadRuns();
+  state.runs = runs;
+  if (!source) return showEmpty();
+  state.datasets = [...new Set(Object.values(runs).map((r) => r.dataset || "synthetic"))].sort();
+
+  buildPanes();
+  const select = document.getElementById("dataset");
+  for (const d of state.datasets) select.add(new Option(datasetLabel(d), d));
+  const remembered = store.get("dataset");
+  select.value = state.datasets.includes(remembered) ? remembered : state.datasets[0];
+  select.addEventListener("change", () => chooseDataset(select.value));
+
+  document.getElementById("level").addEventListener("input", (e) => setLevel(+e.target.value));
+  document.getElementById("play").addEventListener("click", togglePlay);
+  document.getElementById("fit").addEventListener("click", fit);
+  document.addEventListener("keydown", (e) => {
+    // The slider and the run menus handle their own arrow keys.
+    if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+    if (e.key === "ArrowRight") setLevel(state.level + 1);
+    else if (e.key === "ArrowLeft") setLevel(state.level - 1);
+    else if (e.key === " ") { e.preventDefault(); togglePlay(); }
+  });
+
+  chooseDataset(select.value);
+}
+
+main();
+</script>
+</body>
+</html>

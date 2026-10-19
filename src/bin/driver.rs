@@ -9,7 +9,9 @@ use mastic::{
     bits_to_bitstring,
     collect::{self, ReportShare},
     config::{self, Mode},
-    dataset, geo, histogram_chunk_length,
+    dataset,
+    geo::{self, LocationEncoder},
+    histogram_chunk_length,
     rpc::{
         AddReportSharesRequest, ApplyFLPResultsRequest, AttributeBasedMetricsResultRequest,
         AttributeBasedMetricsValidateRequest, FinalSharesRequest, GetProofsRequest,
@@ -32,6 +34,7 @@ use prio::{
 use rand::{distributions::Distribution, thread_rng, Rng};
 use rand_core::RngCore;
 use rayon::prelude::*;
+use serde::Serialize;
 use tarpc::{client, context, serde_transport::tcp, tokio_serde::formats::Bincode};
 
 fn long_context() -> context::Context {
@@ -40,6 +43,97 @@ fn long_context() -> context::Context {
     // Increase timeout to one hour
     ctx.deadline = SystemTime::now() + Duration::from_secs(1000000);
     ctx
+}
+
+/// One candidate prefix of a crawl level, as the collector sees it after combining the shares.
+#[derive(Serialize)]
+struct ExportCandidate {
+    bits: String,
+    /// Number of clients under this prefix (the counter, the last element of `value`).
+    count: u64,
+    value: Vec<u64>,
+    /// Whether the count reached the threshold, so the crawl expands this prefix.
+    heavy: bool,
+    /// Outline of the prefix as polygons of `[lat, lon]`; empty without a dataset.
+    region: Vec<Vec<[f64; 2]>>,
+}
+
+#[derive(Serialize)]
+struct ExportLevel {
+    /// Prefix length of the candidates, 1 to `data_bits`.
+    level: usize,
+    seconds: f64,
+    candidates: Vec<ExportCandidate>,
+}
+
+/// Records every crawl level for `--export`. The servers expand each surviving prefix into its
+/// two children in order and prune in place, so the driver can follow the candidates' paths.
+struct CrawlExport {
+    encoder: Option<Box<dyn LocationEncoder>>,
+    frontier: Vec<Vec<bool>>,
+    levels: Vec<ExportLevel>,
+}
+
+impl CrawlExport {
+    fn new(cfg: &config::Config) -> Self {
+        Self {
+            encoder: cfg.dataset.as_ref().map(|d| geo::encoder(&d.encoding)),
+            frontier: vec![vec![]],
+            levels: Vec::new(),
+        }
+    }
+
+    fn record(
+        &mut self,
+        input_len: usize,
+        cnt_values_0: &[Vec<Field128>],
+        cnt_values_1: &[Vec<Field128>],
+        keep: &[bool],
+    ) {
+        let paths: Vec<Vec<bool>> = self
+            .frontier
+            .iter()
+            .flat_map(|p| [false, true].map(|b| [&p[..], &[b]].concat()))
+            .collect();
+        assert_eq!(paths.len(), cnt_values_0.len());
+
+        let candidates = paths
+            .iter()
+            .zip(cnt_values_0.iter().zip(cnt_values_1))
+            .zip(keep)
+            .map(|((path, (v0, v1)), &heavy)| {
+                let value: Vec<u64> = v0
+                    .iter()
+                    .zip(v1)
+                    .map(|(&a, &b)| u128::from(a + b) as u64)
+                    .collect();
+                let region = self.encoder.as_ref().map_or_else(Vec::new, |e| {
+                    e.region(path)
+                        .into_iter()
+                        .map(|ring| ring.into_iter().map(|(lat, lon)| [lat, lon]).collect())
+                        .collect()
+                });
+                ExportCandidate {
+                    bits: bits_to_bitstring(path),
+                    count: value[input_len],
+                    value,
+                    heavy,
+                    region,
+                }
+            })
+            .collect();
+
+        self.levels.push(ExportLevel {
+            level: paths[0].len(),
+            seconds: 0.0,
+            candidates,
+        });
+        self.frontier = paths
+            .into_iter()
+            .zip(keep)
+            .filter_map(|(p, &k)| k.then_some(p))
+            .collect();
+    }
 }
 
 fn sample_bits(len: usize) -> Vec<bool> {
@@ -410,6 +504,7 @@ async fn run_level(
     client_0: &CollectorClient,
     client_1: &CollectorClient,
     num_clients: usize,
+    export: &mut Option<CrawlExport>,
 ) -> io::Result<()> {
     let threshold = if let Mode::WeightedHeavyHitters { threshold } = cfg.mode {
         core::cmp::max(1, (threshold * (num_clients as f64)) as u64)
@@ -419,6 +514,7 @@ async fn run_level(
         ));
     };
     let mut keep;
+    let mut cnt_values;
     let mut split = 1usize;
     let mut malicious = Vec::<usize>::new();
     let mut is_last = false;
@@ -442,6 +538,7 @@ async fn run_level(
             &cnt_values_0,
             &cnt_values_1,
         );
+        cnt_values = (cnt_values_0, cnt_values_1);
         if mt_root_0.is_empty() {
             break;
         }
@@ -473,6 +570,10 @@ async fn run_level(
         }
     }
 
+    if let Some(export) = export {
+        export.record(mastic.input_len(), &cnt_values.0, &cnt_values.1, &keep);
+    }
+
     // Tree prune
     let req = TreePruneRequest { keep };
     let resp_0 = client_0.tree_prune(long_context(), req.clone());
@@ -488,6 +589,7 @@ async fn run_level_last(
     client_0: &CollectorClient,
     client_1: &CollectorClient,
     num_clients: usize,
+    export: &mut Option<CrawlExport>,
 ) -> io::Result<()> {
     let start_last = Instant::now();
     let threshold = if let Mode::WeightedHeavyHitters { threshold } = cfg.mode {
@@ -509,6 +611,9 @@ async fn run_level_last(
         &cnt_values_0,
         &cnt_values_1,
     );
+    if let Some(export) = export {
+        export.record(mastic.input_len(), &cnt_values_0, &cnt_values_1, &keep);
+    }
 
     // Receive counters in chunks to avoid having huge RPC messages.
     let mut start = 0;
@@ -719,6 +824,69 @@ async fn run_plain_metrics(
     Ok(())
 }
 
+/// Write the recorded crawl and the heavy hitters (the full-length prefixes that stayed heavy) as
+/// JSON. The format is read by viz/index.html.
+#[allow(clippy::too_many_arguments)]
+fn write_export(
+    path: &str,
+    cfg: &config::Config,
+    mastic: &MasticHistogram,
+    export: CrawlExport,
+    num_clients: usize,
+    rides: Option<(usize, usize)>,
+    keygen_seconds: f64,
+    total_seconds: f64,
+) -> io::Result<()> {
+    let threshold_fraction = match cfg.mode {
+        Mode::WeightedHeavyHitters { threshold } => threshold,
+        _ => {
+            return Err(Error::other(
+                "--export only supports weighted heavy hitters",
+            ))
+        }
+    };
+    let heavy_hitters: Vec<_> = export
+        .levels
+        .last()
+        .map(|l| l.candidates.iter().filter(|c| c.heavy).collect())
+        .unwrap_or_default();
+    let heavy_hitters: Vec<_> = heavy_hitters
+        .into_iter()
+        .map(|c| {
+            let bits: Vec<bool> = c.bits.chars().map(|b| b == '1').collect();
+            let (label, center) = match &export.encoder {
+                Some(e) => (Some(e.label(&bits)), Some(e.decode(&bits))),
+                None => (None, None),
+            };
+            serde_json::json!({
+                "bits": c.bits,
+                "count": c.count,
+                "value": c.value,
+                "label": label,
+                "center": center.map(|(lat, lon)| [lat, lon]),
+            })
+        })
+        .collect();
+
+    let json = serde_json::json!({
+        "format": "mastic-crawl/1",
+        "dataset": cfg.dataset.as_ref().map(|d| &d.path),
+        "encoding": cfg.dataset.as_ref().map(|d| &d.encoding),
+        "data_bits": cfg.data_bits,
+        "input_len": mastic.input_len(),
+        "num_clients": num_clients,
+        "rides": rides.map(|(total, dropped)| serde_json::json!({"total": total, "dropped": dropped})),
+        "threshold_fraction": threshold_fraction,
+        "threshold": core::cmp::max(1, (threshold_fraction * (num_clients as f64)) as u64),
+        "keygen_seconds": keygen_seconds,
+        "total_seconds": total_seconds,
+        "levels": export.levels,
+        "heavy_hitters": heavy_hitters,
+    });
+    let file = std::fs::File::create(path)?;
+    serde_json::to_writer(io::BufWriter::new(file), &json).map_err(Error::other)
+}
+
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let (cfg, _, num_clients, malicious) = config::get_args("Driver", false, true, true);
@@ -740,6 +908,9 @@ async fn main() -> io::Result<()> {
     println!("- Using {:?} bits", cfg.data_bits);
 
     let mastic = Mastic::new_histogram(cfg.hist_buckets).unwrap();
+    let mut export = cfg.export.as_ref().map(|_| CrawlExport::new(&cfg));
+    // Totals for the export: (rides in the file, rides outside the encoded area).
+    let mut rides = None;
     // Printed after loading and again with the results, so dropped rides are never missed.
     let mut rides_summary = None;
     let inputs = match &cfg.dataset {
@@ -758,6 +929,7 @@ async fn main() -> io::Result<()> {
             );
             println!("{summary}");
             rides_summary = Some(summary);
+            rides = Some((loaded.total, loaded.dropped));
             inputs
         }
         None => synthetic_inputs(&cfg),
@@ -773,6 +945,7 @@ async fn main() -> io::Result<()> {
     println!("Generating reports...");
     let reports = generate_reports(&cfg, &mastic, inputs);
     let delta = start.elapsed().as_secs_f64();
+    let keygen_seconds = delta;
     println!(
         "Generated {:?} keys in {:?} seconds ({:?} sec/key)",
         reports.len(),
@@ -823,14 +996,34 @@ async fn main() -> io::Result<()> {
                 if level == 0 {
                     run_flp_queries(&cfg, &mastic, &client_0, &client_1, num_clients).await?;
                 }
-                run_level(&cfg, &mastic, &client_0, &client_1, num_clients).await?;
-                println!(
-                    "- Time for level {}: {:?}",
-                    level + 1,
-                    start_level.elapsed().as_secs_f64()
-                );
+                run_level(
+                    &cfg,
+                    &mastic,
+                    &client_0,
+                    &client_1,
+                    num_clients,
+                    &mut export,
+                )
+                .await?;
+                let seconds = start_level.elapsed().as_secs_f64();
+                println!("- Time for level {}: {:?}", level + 1, seconds);
+                if let Some(level) = export.as_mut().and_then(|e| e.levels.last_mut()) {
+                    level.seconds = seconds;
+                }
             }
-            run_level_last(&cfg, &mastic, &client_0, &client_1, num_clients).await?;
+            let start_level = Instant::now();
+            run_level_last(
+                &cfg,
+                &mastic,
+                &client_0,
+                &client_1,
+                num_clients,
+                &mut export,
+            )
+            .await?;
+            if let Some(level) = export.as_mut().and_then(|e| e.levels.last_mut()) {
+                level.seconds = start_level.elapsed().as_secs_f64();
+            }
         }
 
         Mode::AttributeBasedMetrics { num_attributes } => {
@@ -862,9 +1055,24 @@ async fn main() -> io::Result<()> {
             run_plain_metrics(&cfg, &mastic, &client_0, &client_1, num_clients).await?
         }
     };
-    println!("Total time {:?}", start.elapsed().as_secs_f64());
+    let total_seconds = start.elapsed().as_secs_f64();
+    println!("Total time {:?}", total_seconds);
     if let Some(summary) = &rides_summary {
         println!("{summary}");
+    }
+
+    if let (Some(path), Some(export)) = (&cfg.export, export) {
+        write_export(
+            path,
+            &cfg,
+            &mastic,
+            export,
+            num_clients,
+            rides,
+            keygen_seconds,
+            total_seconds,
+        )?;
+        println!("Wrote crawl to {path}");
     }
 
     Ok(())

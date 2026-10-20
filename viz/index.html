@@ -120,6 +120,10 @@
   }
   .empty code { color: var(--text); }
   .leaflet-tooltip { font: 12px/1.35 system-ui, sans-serif; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9); }
+  }
+  :root[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9); }
   .leaflet-container { font: inherit; }
   @media (max-width: 760px) {
     main { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: minmax(360px, 70vh); }
@@ -229,12 +233,10 @@ const state = {
   timer: null,
 };
 
+// OpenStreetMap's own tiles need no API key; dark mode inverts them in CSS.
 function tiles() {
-  const dark = document.documentElement.dataset.theme === "dark" ||
-    (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
-  return L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png`, {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    subdomains: "abcd",
+  return L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom: 19,
   });
 }

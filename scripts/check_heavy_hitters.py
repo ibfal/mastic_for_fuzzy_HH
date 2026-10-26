@@ -9,9 +9,9 @@ code.
     python3 scripts/check_heavy_hitters.py data/mosaic/sample_busiest_day.csv --threshold 0.005 \
         --mastic-log day.log
     python3 scripts/check_heavy_hitters.py data/mosaic/sample_busiest_day.csv --threshold 0.005 \
-        --encoding geohash --prefix 9v6 --bits 20 --mastic-log day-geohash.log
+        --encoding geohash --prefix 9v6 --bits 21 --mastic-log day-geohash.log
     python3 scripts/check_heavy_hitters.py data/mosaic/sample_busiest_day.csv --threshold 0.005 \
-        --encoding h3 --prefix 82489ffffffffff --resolution 9 --mastic-log day-h3.log
+        --encoding h3 --prefix 82489ffffffffff --resolution 10 --mastic-log day-h3.log
     python3 scripts/check_heavy_hitters.py data/mosaic/sample_busiest_day.csv --threshold 0.005 \
         --encoding morton --bbox 29.9005,30.9245,-98.0505,-97.0265 --axis-bits 10 \
         --mastic-log day-morton.log

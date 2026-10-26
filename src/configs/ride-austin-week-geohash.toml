@@ -1,7 +1,7 @@
-# Same threshold as the mosaic-grid configs; finds 18 / 13 / 16 cells (day / week / month).
+# Same threshold as the mosaic-grid configs; finds 10 / 9 / 11 cells (day / week / month).
 mode.weighted_heavy_hitters.threshold = 0.005
 
-data_bits = 20
+data_bits = 21
 hist_buckets = 1
 
 server_0 = "0.0.0.0:8000"
@@ -15,6 +15,7 @@ zipf_exponent = 1.03
 
 [dataset]
 path = "data/mosaic/sample_busiest_week.csv"
-# All of Austin lies in geohash 9v6; the 20 bits after it give precision 7 (~150 m cells).
-encoding.geohash = { prefix = "9v6", bits = 20 }
+# All of Austin lies in geohash 9v6; the 21 bits after it give 0.000687 x 0.001373 deg cells
+# (~76 x 132 m, 0.0101 km2), the closest geohash area to Mosaic's 0.0107 km2 grid cells.
+encoding.geohash = { prefix = "9v6", bits = 21 }
 weight = "constant"

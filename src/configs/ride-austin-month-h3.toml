@@ -1,7 +1,7 @@
-# Same threshold as the other encodings; finds 26 / 27 / 29 cells (day / week / month).
+# Same threshold as the other encodings; finds 15 / 12 / 16 cells (day / week / month).
 mode.weighted_heavy_hitters.threshold = 0.005
 
-data_bits = 21
+data_bits = 24
 hist_buckets = 1
 
 server_0 = "0.0.0.0:8000"
@@ -15,7 +15,8 @@ zipf_exponent = 1.03
 
 [dataset]
 path = "data/mosaic/sample_busiest_month.csv"
-# All of Austin lies in H3 cell 82489ffffffffff (resolution 2); resolution 9 cells are ~0.1 km2,
-# and only the 7 digits for resolutions 3-9 (21 bits) are sent.
-encoding.h3 = { prefix = "82489ffffffffff", resolution = 9 }
+# All of Austin lies in H3 cell 82489ffffffffff (resolution 2); resolution 10 cells are ~0.0172 km2
+# in Austin, the closest H3 area to Mosaic's 0.0107 km2 grid cells (resolution 11 is 0.0025 km2),
+# and only the 8 digits for resolutions 3-10 (24 bits) are sent.
+encoding.h3 = { prefix = "82489ffffffffff", resolution = 10 }
 weight = "constant"

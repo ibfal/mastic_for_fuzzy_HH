@@ -1,0 +1,3 @@
+# Python packages for the bench scripts, on top of scripts/requirements.txt (h3).
+#   .\.venv\Scripts\python.exe -m pip install -r scripts\requirements.txt -r bench\requirements.txt
+psutil>=5.9   # physical cores and RAM for the environment record (A8)

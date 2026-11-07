@@ -1,0 +1,3 @@
+# Keep the subsets byte for byte: no line-ending conversion, so their SHA-256 values in
+# manifest.json hold on every checkout and in the copy sent to the Mosaic codebase.
+*.csv -text

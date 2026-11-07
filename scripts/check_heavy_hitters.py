@@ -94,17 +94,28 @@ def bits_to_base32(bits):
     return s + (f"[{bits[whole:]}]" if whole < len(bits) else "")
 
 
-class MosaicGrid:
+class Encoder:
+    """Each encoder names a cell (`label`) and gives its centre (`center`), like geo.rs."""
+
+    def describe(self, bits):
+        lat, lon = self.center(bits)
+        return f"{self.label(bits)}  ({lat:.4f}, {lon:.4f})"
+
+
+class MosaicGrid(Encoder):
     def encode(self, lat, lon):
         return grid_to_bits(*to_grid(lat, lon))
 
-    def describe(self, bits):
+    def label(self, bits):
         lat_grid, lon_grid = bits_to_grid(bits)
-        lat, lon = MIN_LAT + lat_grid / SCALE, MIN_LON + lon_grid / SCALE
-        return f"grid ({lat_grid}, {lon_grid})  ({lat:.4f}, {lon:.4f})"
+        return f"grid ({lat_grid}, {lon_grid})"
+
+    def center(self, bits):
+        lat_grid, lon_grid = bits_to_grid(bits)
+        return MIN_LAT + lat_grid / SCALE, MIN_LON + lon_grid / SCALE
 
 
-class Geohash:
+class Geohash(Encoder):
     def __init__(self, prefix, bits):
         self.prefix = "".join(f"{GEOHASH_BASE32.index(c):05b}" for c in prefix)
         self.bits = bits
@@ -113,13 +124,15 @@ class Geohash:
         full = geohash_bits(lat, lon, len(self.prefix) + self.bits)
         return full[len(self.prefix):] if full.startswith(self.prefix) else None
 
-    def describe(self, bits):
-        full = self.prefix + bits
-        (lat0, lat1), (lon0, lon1) = geohash_box(full)
-        return f"{bits_to_base32(full)}  ({(lat0 + lat1) / 2:.4f}, {(lon0 + lon1) / 2:.4f})"
+    def label(self, bits):
+        return bits_to_base32(self.prefix + bits)
+
+    def center(self, bits):
+        (lat0, lat1), (lon0, lon1) = geohash_box(self.prefix + bits)
+        return (lat0 + lat1) / 2, (lon0 + lon1) / 2
 
 
-class H3:
+class H3(Encoder):
     def __init__(self, prefix, resolution):
         import h3  # Only needed for this encoding.
 
@@ -145,10 +158,11 @@ class H3:
             index = (index & ~(7 << 3 * (15 - r))) | (int(bits[i:i + 3], 2) << 3 * (15 - r))
         return self.h3.int_to_str(index)
 
-    def describe(self, bits):
-        cell = self.cell(bits)
-        lat, lon = self.h3.cell_to_latlng(cell)
-        return f"{cell}  ({lat:.4f}, {lon:.4f})"
+    def label(self, bits):
+        return self.cell(bits)
+
+    def center(self, bits):
+        return self.h3.cell_to_latlng(self.cell(bits))
 
 
 # 1.024 degrees square, edges half a 0.001-degree step off the data: with axis_bits = 10 its cells
@@ -156,7 +170,7 @@ class H3:
 MORTON_BBOX = (29.9005, 30.9245, -98.0505, -97.0265)
 
 
-class Morton:
+class Morton(Encoder):
     """Morton code over a bounding box, as geo.rs `Morton`. The quantisation evaluates the same
     expression in the same order, so both produce identical bits even for points on a boundary."""
 
@@ -177,16 +191,18 @@ class Morton:
             return None
         return interleave(lat_idx, lon_idx, self.axis_bits)
 
-    def describe(self, bits):
+    def label(self, bits):
+        lat_idx, lon_idx = bits_to_grid(bits)
+        return f"morton ({lat_idx}, {lon_idx})"
+
+    def center(self, bits):
         lat_idx, lon_idx = bits_to_grid(bits)
         cells = float(1 << self.axis_bits)
 
-        def center(lo, hi, i):
+        def mid(lo, hi, i):
             return (lo + (hi - lo) * i / cells + lo + (hi - lo) * (i + 1) / cells) / 2
 
-        lat = center(self.min_lat, self.max_lat, lat_idx)
-        lon = center(self.min_lon, self.max_lon, lon_idx)
-        return f"morton ({lat_idx}, {lon_idx})  ({lat:.4f}, {lon:.4f})"
+        return mid(self.min_lat, self.max_lat, lat_idx), mid(self.min_lon, self.max_lon, lon_idx)
 
 
 def make_encoder(encoding, prefix=None, bits=20, resolution=9, bbox=None, axis_bits=10):

@@ -20,6 +20,8 @@ Cargo.lock
 *.pdf
 *.png
 !data/mosaic/*.json
+# Benchmark manifest, ground truth and reference hotspots are data, not config.
+!bench/**/*.json
 .venv/
 __pycache__/
 *.log

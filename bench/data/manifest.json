@@ -1,0 +1,53 @@
+{
+  "dataset": "day",
+  "seed": 20261107,
+  "method": "drop rows without finite coordinates; random.Random(seed).shuffle over the remaining rows in file order; first round(N/3), round(2N/3) and N rows",
+  "python": "3.14.0",
+  "line_endings": "LF",
+  "source": {
+    "path": "data/mosaic/sample_busiest_day.csv",
+    "sha256": "c53204d8bf1ba88e48a270bc898dfa6e747d0829173c43aa82ebe3fd30e98ee4",
+    "sha256_lf": "24614c0a16e6d814cc87aeffb0ec86b49e6ae00bf4b268be62bbf462e9694702",
+    "rows": 21581,
+    "rows_kept": 21581,
+    "rows_dropped": 0
+  },
+  "files": [
+    {
+      "subset": "1of3",
+      "path": "bench/data/day_1of3.csv",
+      "rows": 7194,
+      "sha256": "1625ce335fd27067d5940bc8e89832bc2eb228804e9f2b4c464dc1946ea25be8",
+      "seed": 20261107,
+      "source": {
+        "path": "data/mosaic/sample_busiest_day.csv",
+        "sha256": "c53204d8bf1ba88e48a270bc898dfa6e747d0829173c43aa82ebe3fd30e98ee4",
+        "sha256_lf": "24614c0a16e6d814cc87aeffb0ec86b49e6ae00bf4b268be62bbf462e9694702"
+      }
+    },
+    {
+      "subset": "2of3",
+      "path": "bench/data/day_2of3.csv",
+      "rows": 14387,
+      "sha256": "3bc7057b1d76bb6565d42a14bcb4b40be9dfdcb0de2d5738af1f449747250739",
+      "seed": 20261107,
+      "source": {
+        "path": "data/mosaic/sample_busiest_day.csv",
+        "sha256": "c53204d8bf1ba88e48a270bc898dfa6e747d0829173c43aa82ebe3fd30e98ee4",
+        "sha256_lf": "24614c0a16e6d814cc87aeffb0ec86b49e6ae00bf4b268be62bbf462e9694702"
+      }
+    },
+    {
+      "subset": "3of3",
+      "path": "bench/data/day_3of3.csv",
+      "rows": 21581,
+      "sha256": "5916ab4dc5e84bf164162c98a752bca8e4fe3987f0c34c4c33ad4fe225cb9be1",
+      "seed": 20261107,
+      "source": {
+        "path": "data/mosaic/sample_busiest_day.csv",
+        "sha256": "c53204d8bf1ba88e48a270bc898dfa6e747d0829173c43aa82ebe3fd30e98ee4",
+        "sha256_lf": "24614c0a16e6d814cc87aeffb0ec86b49e6ae00bf4b268be62bbf462e9694702"
+      }
+    }
+  ]
+}

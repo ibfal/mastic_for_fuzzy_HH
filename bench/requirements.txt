@@ -1,3 +1,5 @@
 # Python packages for the bench scripts, on top of scripts/requirements.txt (h3).
 #   .\.venv\Scripts\python.exe -m pip install -r scripts\requirements.txt -r bench\requirements.txt
-psutil>=5.9   # physical cores and RAM for the environment record (A8)
+psutil>=5.9       # physical cores and RAM for the environment record (A8)
+matplotlib>=3.8   # plots of evaluate.py (A10); tested with 3.11.2
+pytest>=8         # bench/tests (evaluate.py); tested with 9.2.0

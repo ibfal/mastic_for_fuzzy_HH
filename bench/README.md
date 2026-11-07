@@ -10,8 +10,9 @@ python -m venv .venv                       # once, if .venv does not exist
 .\.venv\Scripts\python.exe -m pip install -r scripts\requirements.txt -r bench\requirements.txt
 ```
 
-`scripts\requirements.txt` provides `h3` (Uber's reference library) and `bench\requirements.txt`
-provides `psutil` (cores and RAM for the environment record).
+`scripts\requirements.txt` provides `h3` (Uber's reference library). `bench\requirements.txt`
+provides `psutil` (cores and RAM for the environment record), `matplotlib` (plots) and `pytest`
+(tests of `evaluate.py`).
 
 ## 1. Data subsets (A1), done once
 
@@ -134,6 +135,41 @@ The runner calls these. To call them by hand:
   varint integers), without tarpc's envelope and frame length. `keygen_bench` also prints the
   `bincode::serialize` sizes, which B3's key-size formula uses.
 
+## 6. Evaluation (A4, A5, A7, A10)
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest bench\tests -p no:cacheprovider     # tests of evaluate.py
+.\.venv\Scripts\python.exe bench\scripts\evaluate.py                     # summary, tables, plots
+.\.venv\Scripts\python.exe bench\scripts\evaluate.py --combine bench\results\summary_mosaic.csv
+```
+
+`bench\scripts\evaluate.py` reads only:
+- `bench\results\raw\*.jsonl`;
+- `bench\ground_truth\`;
+- `bench\reference\`, if it exists.
+
+Smoke lines (subset `smoke`) are skipped. Warm-ups are self-checked but left out of every
+statistic. It writes:
+
+| Output | Contents |
+|---|---|
+| `bench\results\summary_mastic.csv` | one row per encoding × subset: median/min/max over the measured runs of every metric, the modelled LAN/WAN times, client metrics, leakage counters, self-check and accuracy. The columns are `SUMMARY_COLUMNS` in `evaluate.py`; the Mosaic harness must write the same columns. |
+| `bench\results\tables.md` | timings and online steps, modelled communication, communication as measured, client cost, accuracy, leakage, B3 sanity checks, repetition drift |
+| `bench\results\plots\` | the six A10 plots, PNG + PDF, one colour per encoding |
+| `bench\results\comparison.md`, `bench\results\plots\comparison\` | only with `--combine`: side by side, one marker per system |
+
+- **Network model (A4).**
+  - t_comm = R × RTT + busiest link / bandwidth, with R = online + extra rounds.
+  - t_online_est = measured online + t_comm. LAN: 0.5 ms, 1 Gbit/s. WAN: 50 ms, 100 Mbit/s.
+  - Client upload = 1 × RTT + report bytes / 10 Mbit/s.
+  - `rounds.upload` is reported as implemented, but the model doesn't use it.
+- **Self-check (A5).** Every run is compared with `bench\ground_truth\`: cells by label, counts,
+  centres and their Mosaic-grid coordinates, N and T. A failure prints a banner, goes at the top of
+  `tables.md` and makes the exit code 1.
+- **Reference (A5).** Without `bench\reference\`, recall, precision, F1 and count error stay empty,
+  and the script says so. The reader accepts the formats listed in `load_reference`.
+- **Leakage (A7).** Kept = Σ `frontier_per_level`; pruned = revealed − kept.
+
 ## Parameters
 
 | Encoding | n | Parameters |
@@ -156,8 +192,9 @@ only in `ENCODINGS`.
 | `data\` | subsets and `manifest.json` (generated here, copied to Mosaic) |
 | `ground_truth\` | exact heavy cells per encoding and subset |
 | `reference\` | reference hotspots from the Mosaic harness (not yet available) |
-| `scripts\` | `bench_common.py`, `make_subsets.py`, `ground_truth.py`, `run_bench.py`; `evaluate.py` follows |
+| `scripts\` | `bench_common.py`, `make_subsets.py`, `ground_truth.py`, `run_bench.py`, `evaluate.py` |
+| `tests\` | `test_evaluate.py` (pytest) |
 | `reports\` | one report per prompt |
 | `results\raw\` | `mastic.jsonl` (one line per run) and `mastic_client.jsonl` (one line per encoding) |
-| `results\` | summary, tables and plots (later prompts) |
+| `results\` | `summary_mastic.csv`, `tables.md`, `plots\` (written by `evaluate.py`) |
 | `.run\` | runner configs, logs, smoke and check results, `runner_log.jsonl` (ignored by Git) |

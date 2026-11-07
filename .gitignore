@@ -22,6 +22,8 @@ Cargo.lock
 !data/mosaic/*.json
 # Benchmark manifest, ground truth and reference hotspots are data, not config.
 !bench/**/*.json
+# Benchmark runner's configs, logs and scratch files (bench/scripts/run_bench.py).
+bench/.run/
 .venv/
 __pycache__/
 *.log

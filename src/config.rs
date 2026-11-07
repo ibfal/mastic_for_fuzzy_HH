@@ -127,6 +127,16 @@ pub struct Config {
     /// Driver only (`--export`): file to write the crawl to as JSON, for viz/index.html.
     #[serde(skip)]
     pub export: Option<String>,
+
+    /// Driver only (`--bench-out`): JSONL file to append the run's benchmark result line to
+    /// (bench/BENCHMARK_MASTIC.md, A9).
+    #[serde(skip)]
+    pub bench_out: Option<String>,
+
+    /// Driver only (`--bench-meta`): the runner's labels for the result line, as a JSON object
+    /// or `@file`.
+    #[serde(skip)]
+    pub bench_meta: Option<String>,
 }
 
 pub fn get_config(filename: &str) -> Config {
@@ -199,6 +209,24 @@ pub fn get_args(
                 .required(false)
                 .takes_value(true),
         );
+        flags = flags.arg(
+            Arg::with_name("bench_out")
+                .long("bench-out")
+                .value_name("FILENAME")
+                .help("Append the run's benchmark result line (timings, rounds, bytes, leakage, output) to this JSONL file")
+                .required(false)
+                .requires("bench_meta")
+                .takes_value(true),
+        );
+        flags = flags.arg(
+            Arg::with_name("bench_meta")
+                .long("bench-meta")
+                .value_name("JSON")
+                .help("Labels for --bench-out: {\"dataset\", \"subset\", \"rep\", \"warmup\"} and optionally \"timestamp\", \"env\"; or @file")
+                .required(false)
+                .requires("bench_out")
+                .takes_value(true),
+        );
     }
     if get_malicious {
         flags = flags.arg(
@@ -232,6 +260,8 @@ pub fn get_args(
     if get_n_reqs {
         n_reqs = flags.value_of("num_clients").unwrap().parse().unwrap();
         config.export = flags.value_of("export").map(String::from);
+        config.bench_out = flags.value_of("bench_out").map(String::from);
+        config.bench_meta = flags.value_of("bench_meta").map(String::from);
     }
 
     let mut malicious = 0.0;

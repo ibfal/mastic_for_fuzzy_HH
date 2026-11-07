@@ -69,6 +69,71 @@ drift apart.
 
 Without options it also reports whether `src\configs\ride-austin-day-*.toml` match `ENCODINGS`.
 
+## 4. Running the benchmark (A2, A8, B7)
+
+```powershell
+.\.venv\Scripts\python.exe bench\scripts\run_bench.py --smoke      # 4 smoke runs + client micro-benchmark
+.\.venv\Scripts\python.exe bench\scripts\run_bench.py --dry-run    # print the plan, write the configs
+.\.venv\Scripts\python.exe bench\scripts\run_bench.py              # the full benchmark: 72 runs, about 5 min
+```
+
+`bench\scripts\run_bench.py`:
+1. builds `server`, `driver` and `keygen_bench` in release mode, once;
+2. writes one driver config per encoding × subset to `bench\.run\configs\` (ignored by Git), with
+   the encoding parameters from `ENCODINGS`, τ = 0.005 and the servers on `127.0.0.1`.
+   `src\configs\` is not touched;
+3. runs `keygen_bench` once per encoding (A6) and appends to `bench\results\raw\mastic_client.jsonl`;
+4. repetition loop outermost (rep 0 = warm-up, reps 1–5 measured), for every encoding and subset:
+   - checks that both ports are free;
+   - starts both servers with `RAYON_NUM_THREADS` = ⌊physical cores / 2⌋ and waits for their ports;
+   - runs the driver with `-n` = the subset's rows and `--bench-out`;
+   - checks the line against the A9 schema and the ground truth (self-check), then appends it to
+     `bench\results\raw\mastic.jsonl`;
+   - stops the servers, also when the driver fails or on Ctrl+C.
+
+It stops at the first failure. It prints run *i* of *N*, the elapsed time and an estimate of the time
+left. Logs and a per-run record (wall-clock time, peak memory, self-check) go to `bench\.run\`.
+`--malicious` is never used.
+
+| Option | Effect |
+|---|---|
+| `--smoke` | `data\synthetic\ten_locations.csv`, threshold 0.1, 1 run per encoding; results in `bench\.run\smoke\` |
+| `--reps R` | R measured repetitions (default 5), plus the warm-up unless `--no-warmup` |
+| `--only-encoding E`, `--only-subset S` | restrict the matrix (repeatable) |
+| `--threads T` | threads per server (default ⌊physical cores / 2⌋ = 5 on the benchmark laptop) |
+| `--port-base P` | server 0 on P, server 1 on P + 1 (default 18100; 8000 is refused) |
+| `--results-dir D` | write `mastic.jsonl` and `mastic_client.jsonl` to D instead of `bench\results\raw` |
+| `--skip-keygen`, `--no-build`, `--dry-run` | skip the client micro-benchmark / the build / everything but the plan |
+
+Timing run of one `day_3of3` run per encoding, without touching the results:
+
+```powershell
+.\.venv\Scripts\python.exe bench\scripts\run_bench.py --only-subset 3of3 --reps 1 --no-warmup --skip-keygen --results-dir bench\.run\check
+```
+
+## 5. The instrumented driver and the client micro-benchmark
+
+The runner calls these. To call them by hand:
+
+```powershell
+.\target\release\driver.exe -c bench\.run\configs\geohash-3of3.toml -n 21581 --bench-out out.jsonl --bench-meta "@meta.json"
+.\target\release\keygen_bench.exe -c bench\.run\configs\keygen-geohash.toml
+```
+
+- **`--bench-out FILE --bench-meta JSON`** (always together). The driver appends one A9 result
+  line to `FILE`.
+  - The meta object holds `dataset`, `subset`, `rep`, `warmup` and optionally `timestamp` and `env`.
+    Without `env` the driver fills in what Rust knows.
+  - Pass the meta as `"@file"`. Windows PowerShell 5.1 strips the quotes from inline JSON.
+  - Without these flags the driver behaves exactly as before, and `--export` is unchanged.
+- **`keygen_bench`** times one client's report generation on one thread (A6). It uses the first
+  2,000 rows of `bench\data\day_3of3.csv` (`--csv`, `-k`) after one warm-up pass. It writes
+  mean/median/p95 and the report size per server to `bench\results\raw\mastic_client.jsonl`
+  (`--out`).
+- **Bytes** are the bincode size of each message as tarpc sends it (`bincode::DefaultOptions`, i.e.
+  varint integers), without tarpc's envelope and frame length. `keygen_bench` also prints the
+  `bincode::serialize` sizes, which B3's key-size formula uses.
+
 ## Parameters
 
 | Encoding | n | Parameters |
@@ -91,6 +156,8 @@ only in `ENCODINGS`.
 | `data\` | subsets and `manifest.json` (generated here, copied to Mosaic) |
 | `ground_truth\` | exact heavy cells per encoding and subset |
 | `reference\` | reference hotspots from the Mosaic harness (not yet available) |
-| `scripts\` | `bench_common.py`, `make_subsets.py`, `ground_truth.py`; `run_bench.py` and `evaluate.py` follow |
+| `scripts\` | `bench_common.py`, `make_subsets.py`, `ground_truth.py`, `run_bench.py`; `evaluate.py` follows |
 | `reports\` | one report per prompt |
-| `results\` | raw result lines, summary, tables and plots (later prompts) |
+| `results\raw\` | `mastic.jsonl` (one line per run) and `mastic_client.jsonl` (one line per encoding) |
+| `results\` | summary, tables and plots (later prompts) |
+| `.run\` | runner configs, logs, smoke and check results, `runner_log.jsonl` (ignored by Git) |

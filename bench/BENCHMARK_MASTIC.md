@@ -24,7 +24,7 @@ All parameters have defaults. Change one only after agreeing with the professors
 | File in `data/mosaic/` | Contents | Use |
 |---|---|---|
 | `sample_busiest_day.csv` | 21,581 rides | **the benchmark data** |
-| `sample_busiest_week.csv` | 59,040 rides | not used |
+| `sample_busiest_week.csv` | 59,040 rides | not used (Mosaic's own `results.json` run used this file with threshold 2%) |
 | `sample_busiest_month.csv` | 115,174 rides (actually 14 days, 2017-03-31 to 2017-04-13) | not used |
 | `start_busiest_day.json` | the day's pickups on Mosaic's grid as `[lat_grid, lon_grid]` | sanity check of the grid conversion |
 | `results.json` | Mosaic's own experiment results | source for δ and Mosaic's parameters |
@@ -63,8 +63,8 @@ Per system: 4 encodings × 3 subsets × 6 runs = **72 runs**.
 | Weight | constant: every ride is one vote |
 | Mosaic radius δ | **5** grid cells, L∞ (from Mosaic's `results.json`; confirm) |
 | `mosaic_grid` | origin (29.267, −98.743), 0.001° cells, 11 bits per axis, n = 22 |
-| `geohash` | prefix `9v6`, 20 bits, n = 20 |
-| `h3` | prefix `82489ffffffffff`, resolution 9, n = 21 |
+| `geohash` | prefix `9v6`, 21 bits, n = 21 (area-matched to the grid) |
+| `h3` | prefix `82489ffffffffff`, resolution 10, n = 24 (area-matched to the grid) |
 | `morton` | lat 29.9005–30.9245, lon −98.0505 to −97.0265, 10 bits per axis, n = 20 |
 
 If an encoding uses different parameters in either codebase, align them before benchmarking.
@@ -85,7 +85,7 @@ If an encoding uses different parameters in either codebase, align them before b
 
 **Rounds.** A round is one sequential step in which a party sends messages and must wait for the replies before continuing. Messages sent concurrently to several parties in the same step count as one round. Report `upload`, `online` and `extra` rounds separately.
 
-**Bytes.** Application-level size of every serialized message, summed per link and per phase. Framing overhead (TCP, RPC headers) is not counted.
+**Bytes.** Application-level size of every message **as actually sent** (i.e. with the encoding the RPC layer really uses), summed per link and per phase. Framing overhead (TCP, RPC headers) is not counted.
 
 | Link | Meaning |
 |---|---|
@@ -104,6 +104,8 @@ If an encoding uses different parameters in either codebase, align them before b
 | LAN | 0.5 ms | 1 Gbit/s |
 | WAN | 50 ms | 100 Mbit/s |
 | Client uplink (upload only) | — | 10 Mbit/s |
+
+**Upload in the model.** `rounds.upload` records the upload rounds **as implemented** (the simulator sends batches one after another). The deployment model treats upload per client: each client uploads once, so client upload time = 1 × RTT + report bytes / client uplink. Upload is never added to online time.
 
 ## A5. Accuracy
 
@@ -170,13 +172,13 @@ One JSON object per line in `bench/results/raw/<system>.jsonl`, where `system` i
   "rep": 2,
   "warmup": false,
   "timestamp": "2026-11-10T14:03:11+01:00",
-  "params": {"data_bits": 20, "threshold_frac": 0.005, "threshold_abs": 35, "delta": null,
-             "encoding_params": {"prefix": "9v6", "bits": 20}},
+  "params": {"data_bits": 21, "threshold_frac": 0.005, "threshold_abs": 35, "delta": null,
+             "encoding_params": {"prefix": "9v6", "bits": 21}},
   "env": {"cpu": "...", "cores_physical": 8, "cores_logical": 16, "ram_gb": 16, "os": "...",
           "threads": 4, "compiler": "rustc 1.xx", "commit": "abc123", "dirty": false},
   "phases": {"server_offline_ms": 0, "upload_ms": 812.4, "online_ms": 4210.7,
              "online_steps": [{"name": "flp", "ms": 640.2}, {"name": "level_0", "ms": 151.3}]},
-  "rounds": {"upload": 1, "online": 44, "extra": 0},
+  "rounds": {"upload": 1, "online": 47, "extra": 0},
   "bytes": {"upload": {"client_to_server": [0, 0]},
             "online": {"collector_to_server": [0, 0], "server_to_collector": [0, 0],
                        "server_to_server": 0}},
@@ -251,10 +253,11 @@ mastic_for_fuzzy_HH/                 (branch `benchmarking`)
 
 - **Topology as implemented:** the two servers never talk to each other; the driver relays everything and acts as client simulator, leader and collector. So `server_to_server` = 0. All traffic is `collector_to_server` and `server_to_collector`. State this in the report.
 - **Rounds:** every driver call sent to both servers at once (`try_join!`) is one round. Merkle binary-search re-sends go into `rounds.extra`.
-- **Bytes:** `bincode` serialized length of every request and response, per server.
+- **Bytes:** length of every request and response as tarpc actually sends it (bincode with varint encoding), per server.
 - Sanity checks:
-  - online rounds ≈ 2n + 4 when `rounds.extra` = 0 (≈ 44 for geohash, n = 20);
-  - per-server VIDPF key ≈ 33 + n·(42 + 24·(m+1)) bytes: ≈ 1,833 B (geohash), 1,923 B (H3), 2,013 B (grid), plus the FLP proof share.
+  - online rounds when `rounds.extra` = 0 and N ≤ `query_flp_batch_size`: tree_init + FLP query + apply FLP results + (n − 1) crawls + n prunes + crawl_last + get_proofs + final shares = **2n + 5** (45 Morton, 47 geohash, 49 grid, 53 H3). Confirmed by measurement in prompt 2;
+  - upload rounds as implemented: ⌈N / 1000⌉ batches (8 / 15 / 22 for the three subsets). The model uses 1 round per client (A4);
+  - per-server VIDPF key with fixed-length bincode ≈ 33 + n·(42 + 24·(m+1)) bytes: 1,833 B (Morton, n = 20), 1,923 B (geohash, n = 21), 2,013 B (grid, n = 22), 2,193 B (H3, n = 24). As actually sent (varint): 1,399 / 1,468 / 1,537 / 1,675 B. The FLP proof share (7 field elements) comes on top. Confirmed in prompt 2.
 
 ## B4. Accuracy in Mastic
 
@@ -314,4 +317,3 @@ Verify each item against the code and the paper:
    - **Checks:** each check from this file, with the numbers and pass/fail.
    - **Deviations and open questions:** anything that differs from this file or needs my decision.
    - **What to commit:** the exact `git add …` command (specific paths, never `git add .`) and a one-line commit message. Leave out `.venv/`, `__pycache__/`, `target/` and temporary files.
-

@@ -1,3 +1,4 @@
+pub mod bench;
 pub mod collect;
 pub mod config;
 pub mod dataset;

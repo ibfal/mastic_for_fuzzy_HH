@@ -45,3 +45,7 @@ path = "src/bin/server.rs"
 [[bin]]
 name = "driver"
 path = "src/bin/driver.rs"
+
+[[bin]]
+name = "keygen_bench"
+path = "src/bin/keygen_bench.rs"

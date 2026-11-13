@@ -1,0 +1,66 @@
+{
+ "schema_version": 1,
+ "system": "mastic",
+ "dataset": "day",
+ "subset": "3of3",
+ "source": {
+  "path": "bench/data/day_3of3.csv",
+  "sha256": "5916ab4dc5e84bf164162c98a752bca8e4fe3987f0c34c4c33ad4fe225cb9be1"
+ },
+ "threshold_frac": 0.02,
+ "delta": 5,
+ "encodings": {
+  "mosaic_grid": {
+   "data_bits": 22,
+   "params": {},
+   "rows": 21581,
+   "dropped": 0,
+   "N": 21581,
+   "T": 431,
+   "distinct_cells": 6583,
+   "cells": []
+  },
+  "geohash": {
+   "data_bits": 21,
+   "params": {
+    "prefix": "9v6",
+    "bits": 21
+   },
+   "rows": 21581,
+   "dropped": 0,
+   "N": 21581,
+   "T": 431,
+   "distinct_cells": 5893,
+   "cells": []
+  },
+  "h3": {
+   "data_bits": 24,
+   "params": {
+    "prefix": "82489ffffffffff",
+    "resolution": 10
+   },
+   "rows": 21581,
+   "dropped": 0,
+   "N": 21581,
+   "T": 431,
+   "distinct_cells": 5651,
+   "cells": []
+  },
+  "morton": {
+   "data_bits": 20,
+   "params": {
+    "min_lat": 29.9005,
+    "max_lat": 30.9245,
+    "min_lon": -98.0505,
+    "max_lon": -97.0265,
+    "axis_bits": 10
+   },
+   "rows": 21581,
+   "dropped": 0,
+   "N": 21581,
+   "T": 431,
+   "distinct_cells": 6583,
+   "cells": []
+  }
+ }
+}

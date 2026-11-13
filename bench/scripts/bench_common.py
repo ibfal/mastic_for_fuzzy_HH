@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Shared helpers for the Mastic benchmark (bench/BENCHMARK_MASTIC.md).
 
-- The experiment's parameters in one place (A2): encodings, threshold, seed, delta.
+- The experiment's parameters in one place (A2): encodings, the per-system thresholds, seed, delta.
 - The plaintext encoders, imported from scripts/check_heavy_hitters.py (B4).
 - The environment record (A8), the result schema check (A9) and a JSONL append helper.
 
@@ -35,8 +35,15 @@ SCHEMA_VERSION = 1
 DATASET = "day"
 SEED = 20261107
 SUBSETS = ("1of3", "2of3", "3of3")
-THRESHOLD_FRAC = 0.005
+# Threshold fraction tau per system (A2): each system runs at its own native threshold.
+# Mastic: in-cell counts, the existing day configs. Mosaic: neighbourhood counts, Mosaic's code and
+# its results.json (optionally also run at Mastic's 0.005). T = max(1, floor(tau * N)).
+THRESHOLDS = {"mastic": 0.005, "mosaic": 0.02}
+THRESHOLD_FRAC = THRESHOLDS[SYSTEM]  # this codebase's tau: the default of every script
 DELTA = 5  # Mosaic's radius in grid cells, L-infinity (data/mosaic/results.json)
+# The reference hotspots (A5): Mosaic's qualifying squares at Mosaic's native tau and delta.
+REFERENCE_TAU = THRESHOLDS["mosaic"]
+REFERENCE_DELTA = DELTA
 COORD_COLUMNS = ("start_location_lat", "start_location_long")
 
 # Encoding parameters. `params` is the encoding table of a driver config ([dataset] encoding);
@@ -65,9 +72,22 @@ ENCODINGS = {
 }
 
 
-def threshold_abs(n, frac=THRESHOLD_FRAC):
-    """T = max(1, floor(frac * n)), the driver's rule."""
-    return max(1, int(frac * n))
+def threshold_abs(n, tau):
+    """T = max(1, floor(tau * n)), the driver's rule. tau is always explicit: the two systems run
+    at different thresholds (A2)."""
+    return max(1, int(tau * n))
+
+
+def tau_tag(tau):
+    """tau as it appears in file names: 0.02 -> "0.02", 0.005 -> "0.005"."""
+    return f"{tau:g}"
+
+
+def ground_truth_path(dataset, subset, tau):
+    """bench/ground_truth/<dataset>_<subset>.json at Mastic's own tau (the files the benchmark was
+    run against, unchanged), <dataset>_<subset>_tau<tau>.json at any other tau."""
+    suffix = "" if tau == THRESHOLD_FRAC else f"_tau{tau_tag(tau)}"
+    return GROUND_TRUTH_DIR / f"{dataset}_{subset}{suffix}.json"
 
 
 # --- Plaintext encoders ----------------------------------------------------------------------
@@ -107,7 +127,7 @@ def config_encoding(name):
 
 
 def compare_configs(prefix="ride-austin-day"):
-    """Differences between src/configs/<prefix>-<encoding>.toml and ENCODINGS / THRESHOLD_FRAC."""
+    """Differences between src/configs/<prefix>-<encoding>.toml and ENCODINGS / Mastic's tau."""
     results = []
     for name, spec in ENCODINGS.items():
         path = ROOT / "src" / "configs" / f"{prefix}-{spec['config']}.toml"
@@ -512,8 +532,9 @@ def main():
 
     print("Environment (A8):")
     print(json.dumps(collect_env(), indent=1))
-    print(f"\nHarness parameters: dataset {DATASET}, seed {SEED}, threshold {THRESHOLD_FRAC}, "
-          f"delta {DELTA}")
+    print(f"\nHarness parameters: dataset {DATASET}, seed {SEED}, threshold tau per system "
+          f"{THRESHOLDS} (this codebase: {THRESHOLD_FRAC}), delta {DELTA}; reference at tau "
+          f"{REFERENCE_TAU}, delta {REFERENCE_DELTA}")
     for name, spec in ENCODINGS.items():
         print(f"  {name:12} n = {spec['data_bits']:2}  {spec['params']}")
     print("\nsrc/configs/ride-austin-day-* against the harness parameters:")

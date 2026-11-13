@@ -34,20 +34,25 @@ rides, nested, seeded shuffle) and `bench\data\manifest.json` with the SHA-256 o
 
 ```powershell
 .\.venv\Scripts\python.exe bench\scripts\ground_truth.py
+.\.venv\Scripts\python.exe bench\scripts\ground_truth.py --tau 0.02
 .\.venv\Scripts\python.exe bench\scripts\ground_truth.py --csv data\synthetic\ten_locations.csv --threshold 0.1
 .\.venv\Scripts\python.exe bench\scripts\ground_truth.py --check-grid
 ```
 
 1. **The first command** checks each subset against the manifest, then writes
-   `bench\ground_truth\day_<subset>.json`. Each file has, per encoding:
-   - N (rides encoded) and T = max(1, ⌊0.005·N⌋);
+   `bench\ground_truth\day_<subset>.json` at Mastic's τ = 0.005. Each file has, per encoding:
+   - N (rides encoded) and T = max(1, ⌊τ·N⌋);
    - the rides dropped and the number of distinct cells;
    - every heavy cell: its bits, label, centre (lat, lon), Mosaic-grid coordinates of the centre,
      and count.
-2. **The second command** does the same for any CSV at any threshold (a smoke test) and writes
+2. **`--tau`** does the same at another τ and writes `bench\ground_truth\day_<subset>_tau<τ>.json`
+   (the 0.005 files keep their names). The console table also shows the busiest cell's count. At
+   τ = 0.02 (T = 143 / 287 / 431) every encoding has 0 heavy cells: the busiest cell holds 214 rides
+   (231 for H3).
+3. **`--csv`** does the same for any CSV at any threshold (a smoke test) and writes
    `bench\ground_truth\smoke_<name>.json`. For the 10-landmark file it must find 4 cells with counts
    50/40/30/20 for every encoding.
-3. **The third command** checks that Mosaic's grid formula, applied to the day file, gives exactly
+4. **`--check-grid`** checks that Mosaic's grid formula, applied to the day file, gives exactly
    `data\mosaic\start_busiest_day.json`.
 
 The encoders come from `scripts\check_heavy_hitters.py`, so the ground truth and the checker can't
@@ -61,8 +66,10 @@ drift apart.
 ```
 
 `bench\scripts\bench_common.py` holds:
-- **the experiment's parameters** in one place: `ENCODINGS` (encoding parameters and n), the
-  threshold fraction, the seed and δ;
+- **the experiment's parameters** in one place: `ENCODINGS` (encoding parameters and n), τ per
+  system (`THRESHOLDS`: Mastic 0.005, Mosaic 0.02; `THRESHOLD_FRAC` is Mastic's), the reference's
+  τ and δ, the seed and δ. `threshold_abs(n, tau)` always takes τ explicitly, and
+  `ground_truth_path(dataset, subset, tau)` names the ground-truth file for a τ;
 - **the environment record (A8)**: CPU, physical/logical cores, RAM, OS, threads per server
   (⌊physical / 2⌋), rustc version, git commit and dirty flag;
 - **the A9 schema check** (`validate_result`), and `append_jsonl`, which only writes lines that pass
@@ -81,7 +88,7 @@ Without options it also reports whether `src\configs\ride-austin-day-*.toml` mat
 `bench\scripts\run_bench.py`:
 1. builds `server`, `driver` and `keygen_bench` in release mode, once;
 2. writes one driver config per encoding × subset to `bench\.run\configs\` (ignored by Git), with
-   the encoding parameters from `ENCODINGS`, τ = 0.005 and the servers on `127.0.0.1`.
+   the encoding parameters from `ENCODINGS`, τ = 0.005 (or `--tau`) and the servers on `127.0.0.1`.
    `src\configs\` is not touched;
 3. runs `keygen_bench` once per encoding (A6) and appends to `bench\results\raw\mastic_client.jsonl`;
 4. repetition loop outermost (rep 0 = warm-up, reps 1–5 measured), for every encoding and subset:
@@ -99,6 +106,7 @@ left. Logs and a per-run record (wall-clock time, peak memory, self-check) go to
 | Option | Effect |
 |---|---|
 | `--smoke` | `data\synthetic\ten_locations.csv`, threshold 0.1, 1 run per encoding; results in `bench\.run\smoke\` |
+| `--tau X` | threshold fraction (default 0.005, Mastic's τ); the driver records it in `params.threshold_frac`. Needs `ground_truth.py --tau X` first; configs and logs get a `-tau<X>` suffix. Mastic is not meant to run at 0.02 (A2) |
 | `--reps R` | R measured repetitions (default 5), plus the warm-up unless `--no-warmup` |
 | `--only-encoding E`, `--only-subset S` | restrict the matrix (repeatable) |
 | `--threads T` | threads per server (default ⌊physical cores / 2⌋ = 5 on the benchmark laptop) |
@@ -141,19 +149,20 @@ The runner calls these. To call them by hand:
 .\.venv\Scripts\python.exe -m pytest bench\tests -p no:cacheprovider     # tests of evaluate.py
 .\.venv\Scripts\python.exe bench\scripts\evaluate.py                     # summary, tables, plots
 .\.venv\Scripts\python.exe bench\scripts\evaluate.py --combine bench\results\summary_mosaic.csv
+.\.venv\Scripts\python.exe bench\scripts\evaluate.py --reference-dir D --out-dir E   # e.g. a test reference, outputs elsewhere
 ```
 
 `bench\scripts\evaluate.py` reads only:
 - `bench\results\raw\*.jsonl`;
-- `bench\ground_truth\`;
-- `bench\reference\`, if it exists.
+- `bench\ground_truth\`, at each run's τ;
+- `bench\reference\` (or `--reference-dir`), if it exists.
 
 Smoke lines (subset `smoke`) are skipped. Warm-ups are self-checked but left out of every
 statistic. It writes:
 
 | Output | Contents |
 |---|---|
-| `bench\results\summary_mastic.csv` | one row per encoding × subset: median/min/max over the measured runs of every metric, the modelled LAN/WAN times, client metrics, leakage counters, self-check and accuracy. The columns are `SUMMARY_COLUMNS` in `evaluate.py`; the Mosaic harness must write the same columns. |
+| `bench\results\summary_mastic.csv` | one row per encoding × subset × τ (`threshold_frac` is a column and part of the row key): median/min/max over the measured runs of every metric, the modelled LAN/WAN times, client metrics, leakage counters, self-check and accuracy. The columns are `SUMMARY_COLUMNS` in `evaluate.py`; the Mosaic harness must write the same columns. |
 | `bench\results\tables.md` | timings and online steps, modelled communication, communication as measured, client cost, accuracy, leakage, B3 sanity checks, repetition drift |
 | `bench\results\plots\` | the six A10 plots, PNG + PDF, one colour per encoding |
 | `bench\results\comparison.md`, `bench\results\plots\comparison\` | only with `--combine`: side by side, one marker per system |
@@ -163,11 +172,21 @@ statistic. It writes:
   - t_online_est = measured online + t_comm. LAN: 0.5 ms, 1 Gbit/s. WAN: 50 ms, 100 Mbit/s.
   - Client upload = 1 × RTT + report bytes / 10 Mbit/s.
   - `rounds.upload` is reported as implemented, but the model doesn't use it.
-- **Self-check (A5).** Every run is compared with `bench\ground_truth\`: cells by label, counts,
-  centres and their Mosaic-grid coordinates, N and T. A failure prints a banner, goes at the top of
-  `tables.md` and makes the exit code 1.
-- **Reference (A5).** Without `bench\reference\`, recall, precision, F1 and count error stay empty,
-  and the script says so. The reader accepts the formats listed in `load_reference`.
+- **Self-check (A5).** Every run is compared with the ground truth at its own τ: cells by label,
+  counts, centres and their Mosaic-grid coordinates, N and T. A failure prints a banner, goes at
+  the top of `tables.md` and makes the exit code 1.
+- **Reference (A5).** `bench\reference\day_<subset>.json` holds Mosaic's qualifying squares Q at
+  τ = 0.02, δ = 5, grouped into areas (format in A5). Every run of every τ is measured against it on
+  the Mosaic grid: `area_recall`, `precision`, `f1`, `areas_found` / `reference_areas`, `outputs` /
+  `reference_squares`. Counts are not compared. The reader accepts only the A5 format and checks it
+  against A5 (counts ≥ T, area sizes and peaks, areas = squares touching on a side or a corner); any
+  other file stops the script with exit code 2 and a message naming the problem. A τ, δ or T that
+  differs from A5 is reported as a note. Without the folder these columns stay empty, and the
+  script says so.
+- **Several τ.** Tables have a τ column; plots tell τ values apart by line style and hollow markers,
+  and plot 5 has one row of panels per τ. `--combine` puts one column per system × τ side by side,
+  checks that N and δ agree, that T agrees wherever two systems ran the same τ, and that
+  T = max(1, ⌊τ·N⌋) in every row.
 - **Leakage (A7).** Kept = Σ `frontier_per_level`; pruned = revealed − kept.
 
 ## Parameters
@@ -179,7 +198,9 @@ statistic. It writes:
 | `h3` | 24 | prefix `82489ffffffffff`, resolution 10 |
 | `morton` | 20 | lat 29.9005–30.9245, lon −98.0505 to −97.0265, 10 bits per axis |
 
-Threshold τ = 0.005 (T = 35 / 71 / 107), δ = 5 grid cells (L∞), seed 20261107.
+Threshold τ per system (A2): Mastic 0.005 (T = 35 / 71 / 107); Mosaic 0.02 (T = 143 / 287 / 431),
+optionally also 0.005. Reference: Mosaic's squares at τ = 0.02, δ = 5 grid cells (L∞). Seed
+20261107.
 
 Geohash and H3 use the area-matched values of `src\configs\ride-austin-day-*.toml`, not A2's
 20 bits / resolution 9. A2 and B3 are to be updated in both benchmark files. Change the parameters
@@ -190,8 +211,8 @@ only in `ENCODINGS`.
 | Path | Contents |
 |---|---|
 | `data\` | subsets and `manifest.json` (generated here, copied to Mosaic) |
-| `ground_truth\` | exact heavy cells per encoding and subset |
-| `reference\` | reference hotspots from the Mosaic harness (not yet available) |
+| `ground_truth\` | exact heavy cells per encoding and subset: `day_<subset>.json` (τ = 0.005), `day_<subset>_tau0.02.json` (τ = 0.02, all empty) |
+| `reference\` | Mosaic's qualifying squares and areas, A5 format, from the Mosaic harness (not yet available) |
 | `scripts\` | `bench_common.py`, `make_subsets.py`, `ground_truth.py`, `run_bench.py`, `evaluate.py` |
 | `tests\` | `test_evaluate.py` (pytest) |
 | `reports\` | one report per prompt |

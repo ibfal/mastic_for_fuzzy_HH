@@ -82,7 +82,7 @@ Both use T = max(1, ⌊τ·N⌋). Mastic is not run at τ = 0.02: no single grid
 | `h3` | prefix `82489ffffffffff`, resolution 10, n = 24 (area-matched to the grid) |
 | `morton` | lat 29.9005–30.9245, lon −98.0505 to −97.0265, 10 bits per axis, n = 20 |
 
-If an encoding uses different parameters in either codebase, align them before benchmarking.
+If an encoding uses different parameters in either codebase, align them before benchmarking. What must be identical are the **cells**. The number of crawl levels n may differ between the two implementations, because they represent the same cells differently (Mosaic: geohash n = 22, with one dummy longitude level; H3 n = 23, from 2 × 11 levels on two cube coordinates plus one final check of the derived third coordinate). Each result line records its own n in `params.data_bits`.
 
 ## A3. Phases
 

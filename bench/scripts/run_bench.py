@@ -4,9 +4,11 @@
     .\\.venv\\Scripts\\python.exe bench\\scripts\\run_bench.py --smoke     # smoke runs, ten_locations.csv
     .\\.venv\\Scripts\\python.exe bench\\scripts\\run_bench.py             # the full benchmark (72 runs)
     .\\.venv\\Scripts\\python.exe bench\\scripts\\run_bench.py --only-encoding geohash --only-subset 3of3 --reps 1 --no-warmup --results-dir bench\\.run\\check
+    .\\.venv\\Scripts\\python.exe bench\\scripts\\run_bench.py --tau 0.02 --dry-run   # another tau (needs ground_truth.py --tau 0.02)
 
 Steps: build the release binaries once; write one driver config per encoding x subset into
-bench/.run/configs/ (encoding parameters from bench_common.ENCODINGS, threshold from A2); run
+bench/.run/configs/ (encoding parameters from bench_common.ENCODINGS, threshold tau from A2 or
+--tau; the driver records it in params.threshold_frac); run
 keygen_bench once per encoding (A6); then, repetition loop outermost (A8), for every encoding
 and subset: start both servers with RAYON_NUM_THREADS set, wait for their ports, run the driver
 with -n = the subset's rows and --bench-out, check the result line against the A9 schema and the
@@ -80,10 +82,20 @@ def subset_specs(args):
         csv = bc.ROOT / entry["path"]
         if bc.sha256_file(csv) != entry["sha256"]:
             raise RunError(f"{entry['path']} does not match the SHA-256 in bench/data/manifest.json")
-        specs[subset] = {"csv": csv, "rows": entry["rows"],
-                         "truth": bc.GROUND_TRUTH_DIR / f"{bc.DATASET}_{subset}.json",
-                         "dataset": bc.DATASET, "threshold": bc.THRESHOLD_FRAC}
+        truth = bc.ground_truth_path(bc.DATASET, subset, args.tau)
+        if not truth.exists():
+            raise RunError(f"{bc.relpath(truth)} is missing: run ground_truth.py --tau {args.tau} "
+                           f"first (the self-check needs the plaintext answer at this tau)")
+        specs[subset] = {"csv": csv, "rows": entry["rows"], "truth": truth,
+                         "dataset": bc.DATASET, "threshold": args.tau}
     return specs
+
+
+def config_name(encoding, subset, tau):
+    """Config file stem; configs at a tau other than Mastic's get a suffix, so they never replace
+    the configs of the main runs."""
+    suffix = "" if tau == bc.THRESHOLD_FRAC else f"-tau{bc.tau_tag(tau)}"
+    return f"{encoding}-{subset}{suffix}"
 
 
 def toml_value(v):
@@ -284,7 +296,7 @@ def self_check(output, truth):
 
 def run_once(args, run, spec, config, env, results_file, truth):
     enc, subset, rep, warmup = run["encoding"], run["subset"], run["rep"], run["warmup"]
-    name = f"{enc}-{subset}-rep{rep}"
+    name = f"{config_name(enc, subset, args.tau)}-rep{rep}"
     logs_dir = RUN_DIR / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     line_path, meta_path = RUN_DIR / "line.jsonl", RUN_DIR / "meta.json"
@@ -344,11 +356,15 @@ def run_once(args, run, spec, config, env, results_file, truth):
         raise RunError("result line does not match the A9 schema:\n  " + "\n  ".join(errors))
     if line["n_clients"] != spec["rows"] or line["n_clients"] != truth["N"]:
         raise RunError(f"n_clients {line['n_clients']}, rows {spec['rows']}, truth N {truth['N']}")
+    if line["params"]["threshold_frac"] != spec["threshold"]:
+        raise RunError(f"params.threshold_frac {line['params']['threshold_frac']} but the run's "
+                       f"tau is {spec['threshold']}")
     if line["params"]["threshold_abs"] != truth["T"]:
         raise RunError(f"threshold {line['params']['threshold_abs']} but ground truth T = {truth['T']}")
     check = self_check(line["output"], truth)
     record = {
         "run": name, "encoding": enc, "subset": subset, "rep": rep, "warmup": warmup,
+        "threshold_frac": spec["threshold"],
         "timestamp": line["timestamp"], "n_clients": line["n_clients"],
         "threads": args.threads, "driver_wall_s": round(driver_wall, 3),
         "run_total_s": round(total, 3), "online_ms": line["phases"]["online_ms"],
@@ -419,6 +435,10 @@ def parse_args():
                    help="skip the warm-up repetition (rep 0, discarded by the evaluation)")
     p.add_argument("--smoke", action="store_true",
                    help="data/synthetic/ten_locations.csv, threshold 0.1, 1 rep, no warm-up")
+    p.add_argument("--tau", type=float,
+                   help=f"threshold fraction tau (default {bc.THRESHOLD_FRAC}, Mastic's tau, A2); "
+                        f"recorded in params.threshold_frac. Needs "
+                        f"bench/ground_truth/<dataset>_<subset>_tau<tau>.json (ground_truth.py --tau)")
     p.add_argument("--only-encoding", action="append", choices=list(bc.ENCODINGS),
                    help="run only this encoding (repeatable)")
     p.add_argument("--only-subset", action="append", choices=list(bc.SUBSETS),
@@ -437,6 +457,12 @@ def parse_args():
         args.reps, args.no_warmup = 1, True
         if args.only_subset:
             p.error("--only-subset does not apply to --smoke")
+        if args.tau is not None:
+            p.error(f"--tau does not apply to --smoke (threshold {SMOKE_THRESHOLD})")
+    if args.tau is None:
+        args.tau = bc.THRESHOLD_FRAC
+    elif not 0 < args.tau <= 1:
+        p.error(f"--tau {args.tau}: must be in (0, 1]")
     if args.reps < 0 or (args.reps == 0 and args.no_warmup):
         p.error("nothing to run")
     ports = {args.port_base, args.port_base + 1}
@@ -454,19 +480,24 @@ def main():
     results_dir = results_dir if results_dir.is_absolute() else (bc.ROOT / results_dir)
     results_file = results_dir / f"{bc.SYSTEM}.jsonl"
     encodings = args.only_encoding or list(bc.ENCODINGS)
-    specs = subset_specs(args)
+    try:
+        specs = subset_specs(args)
+    except RunError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
     check_base_config()
 
     # Configs, one per encoding x subset, plus one per encoding for keygen_bench (day_3of3, A6).
     configs = {}
     for enc in encodings:
         for subset, spec in specs.items():
-            path = RUN_DIR / "configs" / f"{enc}-{subset}.toml"
+            path = RUN_DIR / "configs" / f"{config_name(enc, subset, args.tau)}.toml"
             write_config(path, config_dict(enc, spec["csv"], spec["threshold"], args.port_base))
             configs[enc, subset] = path
-        path = RUN_DIR / "configs" / f"keygen-{enc}.toml"
+        # The client micro-benchmark does not depend on tau; its line records the run's tau.
+        path = RUN_DIR / "configs" / f"{config_name('keygen', enc, args.tau)}.toml"
         write_config(path, config_dict(enc, bc.DATA_DIR / f"{bc.DATASET}_3of3.csv",
-                                       bc.THRESHOLD_FRAC, args.port_base))
+                                       args.tau, args.port_base))
         configs[enc, "keygen"] = path
 
     reps = ([] if args.no_warmup else [0]) + list(range(1, args.reps + 1))
@@ -475,8 +506,11 @@ def main():
     truths = {subset: json.loads(Path(spec["truth"]).read_text(encoding="utf-8"))["encodings"]
               for subset, spec in specs.items()}
 
+    taus = sorted({spec["threshold"] for spec in specs.values()})
     print(f"Mastic benchmark: {len(plan)} runs ({len(encodings)} encodings x {len(specs)} subsets "
           f"x {len(reps)} reps{'' if args.no_warmup else ', rep 0 = warm-up'}), "
+          f"tau = {'/'.join(map(str, taus))} (T = "
+          f"{' / '.join(str(bc.threshold_abs(s['rows'], s['threshold'])) for s in specs.values())}), "
           f"{args.threads} threads per server, ports {args.port_base}/{args.port_base + 1}")
     print(f"  results: {bc.relpath(results_file)}; configs and logs: {bc.relpath(RUN_DIR)}")
     print(f"  commit {env['commit']}{' (dirty)' if env['dirty'] else ''}, {env['cpu']}")

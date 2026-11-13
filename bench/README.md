@@ -68,12 +68,16 @@ drift apart.
 `bench\scripts\bench_common.py` holds:
 - **the experiment's parameters** in one place: `ENCODINGS` (encoding parameters and n), τ per
   system (`THRESHOLDS`: Mastic 0.005, Mosaic 0.02; `THRESHOLD_FRAC` is Mastic's), the reference's
-  τ and δ, the seed and δ. `threshold_abs(n, tau)` always takes τ explicitly, and
+  τ and δ, the seed and δ, the driver settings that are not encoding parameters (`BASE_CONFIG`)
+  and the smoke subset's name. `threshold_abs(n, tau)` always takes τ explicitly, and
   `ground_truth_path(dataset, subset, tau)` names the ground-truth file for a τ;
 - **the environment record (A8)**: CPU, physical/logical cores, RAM, OS, threads per server
   (⌊physical / 2⌋), rustc version, git commit and dirty flag;
 - **the A9 schema check** (`validate_result`), and `append_jsonl`, which only writes lines that pass
-  it.
+  it. It accepts the spec v3.1 additions: `server_to_server` as a number or `[s0, s1]`, null
+  `count`, null `lat`/`lon` (both or neither), and an optional `extra` object on run lines;
+- **the self-check** (`self_check`), used by both `run_bench.py` and `evaluate.py`, so that
+  `evaluate.py` imports no other module of this harness.
 
 Without options it also reports whether `src\configs\ride-austin-day-*.toml` match `ENCODINGS`.
 
@@ -162,31 +166,49 @@ statistic. It writes:
 
 | Output | Contents |
 |---|---|
-| `bench\results\summary_mastic.csv` | one row per encoding × subset × τ (`threshold_frac` is a column and part of the row key): median/min/max over the measured runs of every metric, the modelled LAN/WAN times, client metrics, leakage counters, self-check and accuracy. The columns are `SUMMARY_COLUMNS` in `evaluate.py`; the Mosaic harness must write the same columns. |
-| `bench\results\tables.md` | timings and online steps, modelled communication, communication as measured, client cost, accuracy, leakage, B3 sanity checks, repetition drift |
+| `bench\results\summary_mastic.csv` | one row per encoding × subset × τ (`threshold_frac` is a column and part of the row key): median/min/max over the measured runs of every metric, the modelled LAN/WAN times, client metrics, leakage counters, self-check and accuracy. The columns are `SUMMARY_COLUMNS` in `evaluate.py` (140); the Mosaic harness reuses `evaluate.py`, so its summary has the same columns. |
+| `bench\results\tables.md` | timings and online steps, modelled communication, communication as measured, client cost, accuracy, leakage, B3 sanity checks, repetition drift; the runs' `extra` values (section 9, only if a run has `extra`) |
 | `bench\results\plots\` | the six A10 plots, PNG + PDF, one colour per encoding |
-| `bench\results\comparison.md`, `bench\results\plots\comparison\` | only with `--combine`: side by side, one marker per system |
+| `bench\results\comparison.md`, `bench\results\plots\comparison\` | only with `--combine`: side by side, one marker per system; every ratio against Mastic at τ = 0.005; a same-τ section for each τ two systems share |
 
 - **Network model (A4).**
   - t_comm = R × RTT + busiest link / bandwidth, with R = online + extra rounds.
   - t_online_est = measured online + t_comm. LAN: 0.5 ms, 1 Gbit/s. WAN: 50 ms, 100 Mbit/s.
   - Client upload = 1 × RTT + report bytes / 10 Mbit/s.
   - `rounds.upload` is reported as implemented, but the model doesn't use it.
-- **Self-check (A5).** Every run is compared with the ground truth at its own τ: cells by label,
-  counts, centres and their Mosaic-grid coordinates, N and T. A failure prints a banner, goes at
-  the top of `tables.md` and makes the exit code 1.
+  - `server_to_server` as `[s0, s1]` (spec v3.1): each direction is its own link, so the busiest
+    link uses the larger direction; totals and the `bytes_online_server_to_server_*` columns use
+    the sum.
+- **Self-check (A5).** Every run is compared with the ground truth at its own τ: outputs matched by
+  label (labels must be unique and non-null), counts, centres and their Mosaic-grid coordinates, N
+  and T. A failure prints a banner, goes at the top of `tables.md` and makes the exit code 1.
+  - Null counts (spec v3.1): the self-check compares the reported locations only, and
+    `selfcheck_exact` is empty for those rows.
+  - Outputs with null `lat`/`lon` (not real cells, spec v3.1) are matched by label too. The ground
+    truth must list them with null `lat`, `lon` and `grid`; centres are compared only where both
+    sides have coordinates.
 - **Reference (A5).** `bench\reference\day_<subset>.json` holds Mosaic's qualifying squares Q at
   τ = 0.02, δ = 5, grouped into areas (format in A5). Every run of every τ is measured against it on
   the Mosaic grid: `area_recall`, `precision`, `f1`, `areas_found` / `reference_areas`, `outputs` /
-  `reference_squares`. Counts are not compared. The reader accepts only the A5 format and checks it
-  against A5 (counts ≥ T, area sizes and peaks, areas = squares touching on a side or a corner); any
-  other file stops the script with exit code 2 and a message naming the problem. A τ, δ or T that
-  differs from A5 is reported as a note. Without the folder these columns stay empty, and the
-  script says so.
+  `reference_squares`. Counts are not compared.
+  - The reader requires every A5 field and ignores extra ones (e.g. the Mosaic harness's `N` and
+    `source`). It checks the file against A5: counts ≥ T, area sizes and peaks, areas = squares
+    touching on a side or a corner.
+  - τ must be 0.02, δ 5 and T = max(1, ⌊0.02·N⌋) for the N of that subset's runs; anything else is
+    the wrong file.
+  - Any problem stops the script with exit code 2, a message naming it, and nothing written.
+    Without the folder the accuracy columns stay empty, and the script says so.
+- **Outputs without coordinates and `extra` (spec v3.1).** Outputs with null `lat`/`lon` are
+  counted in `outputs_no_coords_*`, not in `outputs` or the accuracy. A run's `extra` values are
+  shown in `tables.md` section 9 (median [min–max] for numbers), not in the summary.
 - **Several τ.** Tables have a τ column; plots tell τ values apart by line style and hollow markers,
   and plot 5 has one row of panels per τ. `--combine` puts one column per system × τ side by side,
   checks that N and δ agree, that T agrees wherever two systems ran the same τ, and that
   T = max(1, ⌊τ·N⌋) in every row.
+  - Every ratio divides by Mastic at τ = 0.005 (the main comparison is Mastic 0.005 vs Mosaic 0.02),
+    whichever side runs `--combine`, and its label names both τ values.
+  - For each τ two systems share (e.g. Mosaic's optional 0.005), a *Same τ* section compares the
+    systems at that τ only.
 - **Leakage (A7).** Kept = Σ `frontier_per_level`; pruned = revealed − kept.
 
 ## Parameters

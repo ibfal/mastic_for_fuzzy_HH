@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Shared helpers for the Mastic benchmark (bench/BENCHMARK_MASTIC.md).
 
-- The experiment's parameters in one place (A2): encodings, the per-system thresholds, seed, delta.
+- The experiment's parameters in one place (A2): encodings, the per-system thresholds, seed, delta,
+  the driver settings that are not encoding parameters (BASE_CONFIG) and the smoke subset's name.
 - The plaintext encoders, imported from scripts/check_heavy_hitters.py (B4).
-- The environment record (A8), the result schema check (A9) and a JSONL append helper.
+- The environment record (A8), the result schema check (A9, including the spec v3.1 additions) and
+  a JSONL append helper.
+- The self-check of a run's output against the plaintext answer (A5), shared by run_bench.py and
+  evaluate.py, so that evaluate.py needs no other module of this harness.
 
     .\\.venv\\Scripts\\python.exe bench\\scripts\\bench_common.py              # environment, config check
     .\\.venv\\Scripts\\python.exe bench\\scripts\\bench_common.py --self-test  # schema check self-test
@@ -45,6 +49,19 @@ DELTA = 5  # Mosaic's radius in grid cells, L-infinity (data/mosaic/results.json
 REFERENCE_TAU = THRESHOLDS["mosaic"]
 REFERENCE_DELTA = DELTA
 COORD_COLUMNS = ("start_location_lat", "start_location_long")
+
+# Driver settings that are not encoding parameters; equal to src/configs/ride-austin-day-*.toml
+# (run_bench.py checks this at start). evaluate.py's B3 checks use the two batch sizes.
+BASE_CONFIG = {
+    "hist_buckets": 1,
+    "add_report_share_batch_size": 1000,
+    "query_flp_batch_size": 50000,
+    "zipf_unique_buckets": 1000,
+    "zipf_exponent": 1.03,
+}
+
+# Smoke runs (run_bench.py --smoke) carry this dataset and subset; evaluate.py skips them.
+SMOKE_DATASET, SMOKE_SUBSET = "synthetic", "smoke"
 
 # Encoding parameters. `params` is the encoding table of a driver config ([dataset] encoding);
 # `config` is the suffix of src/configs/ride-austin-day-<config>.toml. Geohash and H3 use the
@@ -338,16 +355,19 @@ def _list(item):
     return check
 
 
-def _object(fields):
+def _object(fields, optional=None):
+    """An object with exactly `fields`, plus any of `optional` (which may be left out)."""
+    optional = optional or {}
+
     def check(errors, value, path):
         if not isinstance(value, dict):
             errors.add(path, f"expected an object, got {type(value).__name__}")
             return
         for key in fields.keys() - value.keys():
             errors.add(f"{path}.{key}", "missing")
-        for key in value.keys() - fields.keys():
+        for key in value.keys() - fields.keys() - optional.keys():
             errors.add(f"{path}.{key}", "unexpected field")
-        for key, field in fields.items():
+        for key, field in {**fields, **optional}.items():
             if key in value:
                 field(errors, value[key], f"{path}.{key}")
 
@@ -356,6 +376,33 @@ def _object(fields):
 
 _INT, _NUM, _STR, _BOOL = _type("int"), _type("num"), _type("str"), _type("bool")
 _INT_OR_NULL, _NUM_OR_NULL = _type("int", True), _type("num", True)
+
+
+def _num_or_pair(errors, value, path):
+    """server_to_server (A9, spec v3.1): one number (Mastic: 0), [sent by server0, sent by
+    server1], or null."""
+    if isinstance(value, list):
+        _pair(errors, value, path)
+    else:
+        _NUM_OR_NULL(errors, value, path)
+
+
+_OUTPUT_FIELDS = _object({
+    "label": _type("str", True),
+    # Spec v3.1: null for outputs that are not real cells (Mosaic's H3 coordinate triples) ...
+    "lat": _NUM_OR_NULL,
+    "lon": _NUM_OR_NULL,
+    # ... and null when the system does not reveal counts (Mosaic).
+    "count": _INT_OR_NULL,
+})
+
+
+def _output(errors, value, path):
+    """One reported location: lat and lon are both numbers or both null."""
+    _OUTPUT_FIELDS(errors, value, path)
+    if isinstance(value, dict) and "lat" in value and "lon" in value \
+            and (value["lat"] is None) != (value["lon"] is None):
+        errors.add(path, "lat and lon must both be numbers or both be null")
 
 _HEADER = {
     "schema_version": _enum(SCHEMA_VERSION),
@@ -401,7 +448,7 @@ _RUN = _object({
         "online": _object({
             "collector_to_server": _pair,
             "server_to_collector": _pair,
-            "server_to_server": _NUM_OR_NULL,
+            "server_to_server": _num_or_pair,
         }),
     }),
     "leakage": _object({
@@ -411,12 +458,11 @@ _RUN = _object({
         "client_validity_bits": _INT_OR_NULL,
         "frontier_per_level": _list(_INT),
     }),
-    "output": _list(_object({
-        "label": _type("str", True),
-        "lat": _NUM,
-        "lon": _NUM,
-        "count": _INT,
-    })),
+    "output": _list(_output),
+}, optional={
+    # Spec v3.1: system-specific values without a field of their own; only required to be an
+    # object. evaluate.py shows them in tables.md, not in the summary columns.
+    "extra": _type("dict"),
 })
 
 _CLIENT = _object({
@@ -449,6 +495,56 @@ def append_jsonl(path, obj, kind="run"):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(obj, separators=(",", ":")) + "\n")
+
+
+# --- Self-check (A5) ---------------------------------------------------------------------------
+
+
+def self_check(output, truth):
+    """A5 self-check of one run's output against the plaintext answer truth["cells"] (same system,
+    encoding, subset and tau). Outputs are matched to the answer's cells by label.
+
+    - precision / recall: share of reported labels in the answer / of the answer's labels reported;
+    - exact: every count equals the answer's. None when the run reveals no counts (every output
+      count null, A9 spec v3.1): then only the sets of reported locations are compared;
+    - centres: equal where both sides have coordinates. An output without coordinates (lat/lon
+      null, not a real cell, A9 spec v3.1) must have null coordinates in the answer too;
+    - problems: labels that are null or appear twice, counts that are only partly null, and
+      coordinates on one side only.
+    ok = precision 1, recall 1, exact not False, centres equal and no problems.
+    """
+    problems = []
+    labels = [c["label"] for c in output]
+    if any(label is None for label in labels) or len(set(labels)) != len(labels):
+        problems.append("output labels must be unique and non-null")
+    want = {c["label"]: c for c in truth["cells"]}
+    got = {c["label"]: c for c in output}
+    matched = want.keys() & got.keys()
+    precision = len(matched) / len(got) if got else float(not want)
+    recall = len(matched) / len(want) if want else 1.0
+    counts = [c["count"] for c in output]
+    if output and all(v is None for v in counts):
+        exact = None  # the system reveals no counts: locations only
+    else:
+        if any(v is None for v in counts):
+            problems.append("some output counts are null and others are not")
+        exact = matched == want.keys() == got.keys() and all(
+            got[k]["count"] == want[k]["count"] for k in matched)
+
+    def located(c):
+        return c.get("lat") is not None and c.get("lon") is not None
+
+    if any(located(got[k]) != located(want[k]) for k in matched):
+        problems.append("an output has coordinates where the plaintext answer has none, or the "
+                        "reverse")
+    both = [k for k in matched if located(got[k]) and located(want[k])]
+    centre = max((max(abs(got[k]["lat"] - want[k]["lat"]), abs(got[k]["lon"] - want[k]["lon"]))
+                  for k in both), default=0.0)
+    return {"precision": precision, "recall": recall, "exact": exact,
+            "cells": len(got), "truth_cells": len(want), "max_centre_diff_deg": centre,
+            "problems": problems,
+            "ok": precision == 1.0 and recall == 1.0 and exact is not False and centre < 1e-6
+            and not problems}
 
 
 # --- Self-test and CLI -------------------------------------------------------------------------
@@ -509,6 +605,30 @@ def self_test():
         ("unknown encoding", broken(EXAMPLE_RUN, lambda o: o.update(encoding="s2")), "run", False),
         ("client without client", broken(EXAMPLE_CLIENT, lambda o: o.pop("client")), "client",
          False),
+        # Spec v3.1 additions (Mosaic).
+        ("v3.1: server_to_server per server", broken(
+            EXAMPLE_RUN, lambda o: o["bytes"]["online"].update(server_to_server=[120, 80])),
+         "run", True),
+        ("v3.1: count null", broken(EXAMPLE_RUN, lambda o: o["output"][0].update(count=None)),
+         "run", True),
+        ("v3.1: lat/lon null", broken(
+            EXAMPLE_RUN, lambda o: o["output"].append(
+                {"label": "triple (1, 2, -3)", "lat": None, "lon": None, "count": None})),
+         "run", True),
+        ("v3.1: extra object", broken(
+            EXAMPLE_RUN, lambda o: o.update(extra={"h3_noncell_outputs": 4573,
+                                                   "dealer_bytes": 120})),
+         "run", True),
+        ("v3.1: server_to_server with 3 values", broken(
+            EXAMPLE_RUN, lambda o: o["bytes"]["online"].update(server_to_server=[1, 2, 3])),
+         "run", False),
+        ("v3.1: lat null, lon a number", broken(
+            EXAMPLE_RUN, lambda o: o["output"][0].update(lat=None)), "run", False),
+        ("v3.1: extra as a list", broken(EXAMPLE_RUN, lambda o: o.update(extra=[1])), "run",
+         False),
+        ("v3.1: extra null", broken(EXAMPLE_RUN, lambda o: o.update(extra=None)), "run", False),
+        ("v3.1: extra on a client line", broken(EXAMPLE_CLIENT, lambda o: o.update(extra={})),
+         "client", False),
     ]
     ok = True
     for name, obj, kind, should_pass in cases:

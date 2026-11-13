@@ -44,20 +44,12 @@ TARGET = bc.ROOT / "target" / "release"
 RESERVED_PORTS = {8000}
 DEFAULT_PORT_BASE = 18100
 
-# Driver settings that are not encoding parameters; equal to src/configs/ride-austin-day-*.toml
-# (checked at start).
-BASE_CONFIG = {
-    "hist_buckets": 1,
-    "add_report_share_batch_size": 1000,
-    "query_flp_batch_size": 50000,
-    "zipf_unique_buckets": 1000,
-    "zipf_exponent": 1.03,
-}
-
+# The driver settings that are not encoding parameters (bc.BASE_CONFIG), the smoke subset's name
+# (bc.SMOKE_DATASET, bc.SMOKE_SUBSET) and the self-check (bc.self_check) live in bench_common.py,
+# so that evaluate.py does not need this module.
 SMOKE_CSV = bc.ROOT / "data" / "synthetic" / "ten_locations.csv"
 SMOKE_THRESHOLD = 0.1
 SMOKE_TRUTH = bc.GROUND_TRUTH_DIR / "smoke_ten_locations.json"
-SMOKE_DATASET, SMOKE_SUBSET = "synthetic", "smoke"
 
 KEYGEN_CLIENTS = 2000  # A6
 
@@ -73,8 +65,8 @@ def subset_specs(args):
     """What each run reads: {subset: {csv, rows, truth, dataset, threshold}}."""
     if args.smoke:
         rows = len(bc.read_points(SMOKE_CSV))
-        return {SMOKE_SUBSET: {"csv": SMOKE_CSV, "rows": rows, "truth": SMOKE_TRUTH,
-                               "dataset": SMOKE_DATASET, "threshold": SMOKE_THRESHOLD}}
+        return {bc.SMOKE_SUBSET: {"csv": SMOKE_CSV, "rows": rows, "truth": SMOKE_TRUTH,
+                                  "dataset": bc.SMOKE_DATASET, "threshold": SMOKE_THRESHOLD}}
     manifest = {f["subset"]: f for f in bc.load_manifest()["files"]}
     specs = {}
     for subset in args.only_subset or bc.SUBSETS:
@@ -114,7 +106,7 @@ def config_dict(encoding, csv, threshold, port_base):
     return {
         "mode": {"weighted_heavy_hitters": {"threshold": threshold}},
         "data_bits": bc.ENCODINGS[encoding]["data_bits"],
-        **BASE_CONFIG,
+        **bc.BASE_CONFIG,
         "server_0": f"127.0.0.1:{port_base}",
         "server_1": f"127.0.0.1:{port_base + 1}",
         "dataset": {"path": Path(csv).resolve().as_posix(),
@@ -135,15 +127,15 @@ def write_config(path, cfg):
 
 
 def check_base_config():
-    """Warn if src/configs differ from BASE_CONFIG (the settings run_bench writes itself)."""
+    """Warn if src/configs differ from bc.BASE_CONFIG (the settings run_bench writes itself)."""
     for name, spec in bc.ENCODINGS.items():
         path = bc.ROOT / "src" / "configs" / f"ride-austin-day-{spec['config']}.toml"
         if not path.exists():
             continue
         cfg = tomllib.loads(path.read_text(encoding="utf-8"))
-        diffs = {k: cfg.get(k) for k, v in BASE_CONFIG.items() if cfg.get(k) != v}
+        diffs = {k: cfg.get(k) for k, v in bc.BASE_CONFIG.items() if cfg.get(k) != v}
         if diffs:
-            print(f"WARNING: {bc.relpath(path)} has {diffs}; the benchmark uses {BASE_CONFIG}")
+            print(f"WARNING: {bc.relpath(path)} has {diffs}; the benchmark uses {bc.BASE_CONFIG}")
 
 
 # --- Processes ---------------------------------------------------------------------------------
@@ -260,7 +252,7 @@ def read_line(path):
 def schema_errors(line, kind="run"):
     """bench_common.validate_result; smoke lines carry subset "smoke", which the schema's subset
     list (the benchmark subsets) does not include, so that one field is checked here instead."""
-    if line.get("subset") == SMOKE_SUBSET:
+    if line.get("subset") == bc.SMOKE_SUBSET:
         return bc.validate_result({**line, "subset": bc.SUBSETS[0]}, kind)
     return bc.validate_result(line, kind)
 
@@ -268,7 +260,7 @@ def schema_errors(line, kind="run"):
 def append_line(path, line, kind="run"):
     """bench_common.append_jsonl, which checks the schema first; smoke lines were checked by
     schema_errors and are written directly."""
-    if line.get("subset") != SMOKE_SUBSET:
+    if line.get("subset") != bc.SMOKE_SUBSET:
         bc.append_jsonl(path, line, kind)
         return
     if schema_errors(line, kind):
@@ -276,22 +268,6 @@ def append_line(path, line, kind="run"):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(line, separators=(",", ":")) + "\n")
-
-
-def self_check(output, truth):
-    """A5 self-check of one run against the plaintext ground truth: cells matched by label."""
-    want = {c["label"]: c for c in truth["cells"]}
-    got = {c["label"]: c for c in output}
-    matched = want.keys() & got.keys()
-    precision = len(matched) / len(got) if got else float(not want)
-    recall = len(matched) / len(want) if want else 1.0
-    exact = matched == want.keys() == got.keys() and all(
-        got[k]["count"] == want[k]["count"] for k in matched)
-    centre = max((max(abs(got[k]["lat"] - want[k]["lat"]), abs(got[k]["lon"] - want[k]["lon"]))
-                  for k in matched), default=0.0)
-    return {"precision": precision, "recall": recall, "exact": exact,
-            "cells": len(got), "truth_cells": len(want), "max_centre_diff_deg": centre,
-            "ok": precision == 1.0 and recall == 1.0 and exact and centre < 1e-6}
 
 
 def run_once(args, run, spec, config, env, results_file, truth):
@@ -361,7 +337,7 @@ def run_once(args, run, spec, config, env, results_file, truth):
                        f"tau is {spec['threshold']}")
     if line["params"]["threshold_abs"] != truth["T"]:
         raise RunError(f"threshold {line['params']['threshold_abs']} but ground truth T = {truth['T']}")
-    check = self_check(line["output"], truth)
+    check = bc.self_check(line["output"], truth)
     record = {
         "run": name, "encoding": enc, "subset": subset, "rep": rep, "warmup": warmup,
         "threshold_frac": spec["threshold"],

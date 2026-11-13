@@ -90,7 +90,7 @@ Each client uploads once: 1 × RTT + report bytes / 10 Mbit/s client uplink. Rep
 
 ## 3. Communication (as measured)
 
-Bytes are the application-level size of each message as actually sent (bincode varint for Mastic), per server; framing is not counted. Mastic's two servers never talk to each other: the driver relays everything, so server ↔ server is 0 (B3).
+Bytes are the application-level size of each message as actually sent (bincode varint for Mastic), per server; framing is not counted. Mastic's two servers never talk to each other: the driver relays everything, so server ↔ server is 0 (B3). A system that records server ↔ server per direction (A9 spec v3.1) shows the sum of both directions here; the network model (section 2) uses the larger direction.
 
 | Encoding | Subset | τ | N | Rounds upload (impl.) | Rounds online | Rounds extra | Upload client→server per server (MB) | Online collector→server per server (kB) | Online server→collector per server (MB) | Server↔server (B) | Online total (MB) |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -120,22 +120,22 @@ One thread, the first k rows of `day_3of3.csv`, after one warm-up pass; one run 
 
 ## 5. Accuracy (A5)
 
-Self-check: each run against the same system's plaintext answer for the same encoding, subset and τ (minimum over the measured runs; expected 1.0 / 1.0 / exact). Reference: Mosaic's qualifying squares Q (neighbourhood count ≥ T) at τ = 0.02 and δ = 5, grouped into areas of squares that touch, including diagonally; every run of every τ is measured against it, on the Mosaic grid. Area recall = share of reference areas with a reported location within L∞ ≤ δ of one of the area's squares; precision = share of reported locations within L∞ ≤ δ of a square in Q; F1 = 2PR / (P + R). Counts are not compared: an in-cell count and a neighbourhood count measure different things.
+Self-check: each run against the same system's plaintext answer for the same encoding, subset and τ (minimum over the measured runs; expected 1.0 / 1.0 / exact). Reference: Mosaic's qualifying squares Q (neighbourhood count ≥ T) at τ = 0.02 and δ = 5, grouped into areas of squares that touch, including diagonally; every run of every τ is measured against it, on the Mosaic grid. Area recall = share of reference areas with a reported location within L∞ ≤ δ of one of the area's squares; precision = share of reported locations within L∞ ≤ δ of a square in Q; F1 = 2PR / (P + R). Counts are not compared: an in-cell count and a neighbourhood count measure different things. Outputs = reported locations; outputs without coordinates (not real cells, A9 spec v3.1) are counted separately and take no part in the accuracy. Exact is — when the system reveals no counts (A9 spec v3.1); the self-check then compares the reported locations only.
 
-| Encoding | Subset | τ | N | T | Outputs | Self-check P | Self-check R | Exact | Areas found / reference | Area recall | Precision | F1 | Reference squares (Q) |
-|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `mosaic_grid` | 1/3 | 0.005 | 7,194 | 35 | 7 | 1.000 | 1.000 | yes | — | — | — | — | — |
-| `mosaic_grid` | 2/3 | 0.005 | 14,387 | 71 | 8 | 1.000 | 1.000 | yes | — | — | — | — | — |
-| `mosaic_grid` | 3/3 | 0.005 | 21,581 | 107 | 8 | 1.000 | 1.000 | yes | — | — | — | — | — |
-| `geohash` | 1/3 | 0.005 | 7,194 | 35 | 13 | 1.000 | 1.000 | yes | — | — | — | — | — |
-| `geohash` | 2/3 | 0.005 | 14,387 | 71 | 10 | 1.000 | 1.000 | yes | — | — | — | — | — |
-| `geohash` | 3/3 | 0.005 | 21,581 | 107 | 10 | 1.000 | 1.000 | yes | — | — | — | — | — |
-| `h3` | 1/3 | 0.005 | 7,194 | 35 | 16 | 1.000 | 1.000 | yes | — | — | — | — | — |
-| `h3` | 2/3 | 0.005 | 14,387 | 71 | 14 | 1.000 | 1.000 | yes | — | — | — | — | — |
-| `h3` | 3/3 | 0.005 | 21,581 | 107 | 15 | 1.000 | 1.000 | yes | — | — | — | — | — |
-| `morton` | 1/3 | 0.005 | 7,194 | 35 | 7 | 1.000 | 1.000 | yes | — | — | — | — | — |
-| `morton` | 2/3 | 0.005 | 14,387 | 71 | 8 | 1.000 | 1.000 | yes | — | — | — | — | — |
-| `morton` | 3/3 | 0.005 | 21,581 | 107 | 8 | 1.000 | 1.000 | yes | — | — | — | — | — |
+| Encoding | Subset | τ | N | T | Outputs | Outputs without coordinates | Self-check P | Self-check R | Exact | Areas found / reference | Area recall | Precision | F1 | Reference squares (Q) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `mosaic_grid` | 1/3 | 0.005 | 7,194 | 35 | 7 | 0 | 1.000 | 1.000 | yes | — | — | — | — | — |
+| `mosaic_grid` | 2/3 | 0.005 | 14,387 | 71 | 8 | 0 | 1.000 | 1.000 | yes | — | — | — | — | — |
+| `mosaic_grid` | 3/3 | 0.005 | 21,581 | 107 | 8 | 0 | 1.000 | 1.000 | yes | — | — | — | — | — |
+| `geohash` | 1/3 | 0.005 | 7,194 | 35 | 13 | 0 | 1.000 | 1.000 | yes | — | — | — | — | — |
+| `geohash` | 2/3 | 0.005 | 14,387 | 71 | 10 | 0 | 1.000 | 1.000 | yes | — | — | — | — | — |
+| `geohash` | 3/3 | 0.005 | 21,581 | 107 | 10 | 0 | 1.000 | 1.000 | yes | — | — | — | — | — |
+| `h3` | 1/3 | 0.005 | 7,194 | 35 | 16 | 0 | 1.000 | 1.000 | yes | — | — | — | — | — |
+| `h3` | 2/3 | 0.005 | 14,387 | 71 | 14 | 0 | 1.000 | 1.000 | yes | — | — | — | — | — |
+| `h3` | 3/3 | 0.005 | 21,581 | 107 | 15 | 0 | 1.000 | 1.000 | yes | — | — | — | — | — |
+| `morton` | 1/3 | 0.005 | 7,194 | 35 | 7 | 0 | 1.000 | 1.000 | yes | — | — | — | — | — |
+| `morton` | 2/3 | 0.005 | 14,387 | 71 | 8 | 0 | 1.000 | 1.000 | yes | — | — | — | — | — |
+| `morton` | 3/3 | 0.005 | 21,581 | 107 | 8 | 0 | 1.000 | 1.000 | yes | — | — | — | — | — |
 
 ## 6. Leakage counters (A7)
 

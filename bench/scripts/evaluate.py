@@ -8,9 +8,17 @@
 Reads only bench/results/raw/*.jsonl (<system>.jsonl: one line per run; <system>_client.jsonl:
 the client micro-benchmark), the plaintext ground truth at each run's tau
 (bench_common.ground_truth_path) and, if it exists, the reference
-bench/reference/<dataset>_<subset>.json (A5 format; anything else is an error, exit code 2).
+bench/reference/<dataset>_<subset>.json. The reference must have A5's format (extra fields are
+ignored) and A5's setting: tau = 0.02, delta = 5 and T = max(1, floor(0.02 N)) for the subset's N.
+Anything else is the wrong file: exit code 2.
 Smoke lines (subset "smoke") are skipped. Warm-ups are left out of the summary, but every run,
 warm-ups included, is self-checked.
+
+Result lines may use the A9 spec v3.1 additions (Mosaic): server_to_server per server (the
+network model uses the larger direction, totals the sum), output counts null (the self-check then
+compares locations only and selfcheck_exact is empty), output lat/lon null (not a real cell:
+counted in outputs_no_coords, not in outputs or the accuracy) and an `extra` object (shown in
+tables.md). The only module of this harness it imports is bench_common.py.
 
 Writes (to --out-dir instead of bench/results/ if given):
 - bench/results/summary_<system>.csv: one row per encoding x subset x tau, columns SUMMARY_COLUMNS
@@ -41,13 +49,12 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True  # no __pycache__ in the repo
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import bench_common as bc  # noqa: E402
-import run_bench  # noqa: E402  (self_check and the batch sizes: one definition for runner and evaluation)
+import bench_common as bc  # noqa: E402  (self_check, BASE_CONFIG: one definition for runner and evaluation)
 
 RAW_DIR = bc.BENCH / "results" / "raw"
 RESULTS_DIR = bc.BENCH / "results"
 REFERENCE_DIR = bc.BENCH / "reference"
-SMOKE_SUBSET = run_bench.SMOKE_SUBSET  # "smoke"
+SMOKE_SUBSET = bc.SMOKE_SUBSET  # "smoke"
 
 # --- Summary columns (A10) ---------------------------------------------------------------------
 #
@@ -103,10 +110,12 @@ SUMMARY_COLUMNS = (
     "revealed_pruned_total_median", "revealed_pruned_total_min", "revealed_pruned_total_max",
     "frontier_final_median", "frontier_final_min", "frontier_final_max",
     "client_validity_bits_median", "client_validity_bits_min", "client_validity_bits_max",
-    # accuracy (A5): outputs (reported locations), self-check against the same system's plaintext
-    # answer at the same tau, and the metrics against the reference, Mosaic's qualifying squares Q
-    # at tau = 0.02, delta = 5, grouped into areas (empty until bench/reference/ exists)
+    # accuracy (A5): outputs (reported locations; outputs_no_coords = outputs with null lat/lon,
+    # not real cells, A9 spec v3.1), self-check against the same system's plaintext answer at the
+    # same tau, and the metrics against the reference, Mosaic's qualifying squares Q at
+    # tau = 0.02, delta = 5, grouped into areas (empty until bench/reference/ exists)
     "outputs_median", "outputs_min", "outputs_max",
+    "outputs_no_coords_median", "outputs_no_coords_min", "outputs_no_coords_max",
     "selfcheck_precision_median", "selfcheck_precision_min", "selfcheck_precision_max",
     "selfcheck_recall_median", "selfcheck_recall_min", "selfcheck_recall_max",
     "area_recall_median", "area_recall_min", "area_recall_max",
@@ -178,12 +187,26 @@ def per_server(pair):
     return [None, None] if pair is None else list(pair)
 
 
+def server_to_server_parts(value):
+    """server_to_server as a list: [one number] (Mastic: [0]), [sent by server0, sent by server1]
+    (A9 spec v3.1), or [None]."""
+    return list(value) if isinstance(value, list) else [value]
+
+
+def server_to_server_total(value):
+    """Total server<->server bytes: the number, the sum of both directions, or None."""
+    parts = server_to_server_parts(value)
+    return None if all(v is None for v in parts) else sum(v or 0 for v in parts)
+
+
 def online_link_bytes(online):
     """The online links of A4 (collector->server and server->collector per server, server<->server),
-    with null fields counted as 0."""
+    with null fields counted as 0. A per-server server_to_server gives one link per direction (links
+    are full duplex, A9 spec v3.1), so max() is the larger direction and sum() the total."""
     c2s = per_server(online["collector_to_server"])
     s2c = per_server(online["server_to_collector"])
-    return [v or 0 for v in (*c2s, *s2c, online["server_to_server"])]
+    s2s = server_to_server_parts(online["server_to_server"])
+    return [v or 0 for v in (*c2s, *s2c, *s2s)]
 
 
 # --- Accuracy (A5) -----------------------------------------------------------------------------
@@ -269,19 +292,20 @@ def match_reference(reported, reference):
 def self_check(line, truth):
     """A5 self-check of one run against the same encoding's plaintext ground truth at the run's tau.
 
-    run_bench.self_check (cells matched by label, every count exact, centres equal), plus: the
-    Mosaic-grid coordinates of every matched centre equal the ground truth's, and N and T equal the
-    ground truth's. `ok` is the overall verdict.
+    bench_common.self_check (outputs matched by label, every count exact or none revealed, centres
+    equal where both sides have coordinates), plus: the Mosaic-grid coordinates of every matched
+    centre equal the ground truth's, and N and T equal the ground truth's. `ok` is the overall
+    verdict. A ground-truth cell for an output without coordinates has null lat, lon and grid.
     """
     if truth is None:
         return {"precision": None, "recall": None, "exact": False, "ok": False,
                 "problems": ["no ground truth for this encoding, subset and τ "
                              "(ground_truth.py --tau)"]}
-    check = run_bench.self_check(line["output"], truth)
-    want = {c["label"]: tuple(c["grid"]) for c in truth["cells"]}
-    problems = []
-    if any(to_grid(c["lat"], c["lon"]) != want[c["label"]] for c in line["output"]
-           if c["label"] in want):
+    check = bc.self_check(line["output"], truth)
+    want = {c["label"]: c.get("grid") for c in truth["cells"]}
+    problems = list(check["problems"])
+    if any(to_grid(c["lat"], c["lon"]) != tuple(want[c["label"]]) for c in line["output"]
+           if want.get(c["label"]) is not None and c["lat"] is not None and c["lon"] is not None):
         problems.append("grid coordinates differ")
     if line["n_clients"] != truth["N"]:
         problems.append(f"n_clients {line['n_clients']} != N {truth['N']}")
@@ -317,14 +341,15 @@ def _grid(v):
 
 
 def _keys(obj, keys, where):
+    """obj must be an object with every A5 field in `keys`. Extra fields (e.g. the Mosaic harness's
+    N and source) are allowed and ignored."""
     if not isinstance(obj, dict):
         raise ReferenceFormatError(f"{where}: expected an object with {list(keys)}, got "
                                    f"{type(obj).__name__}")
     missing = [k for k in keys if k not in obj]
-    extra = [k for k in obj if k not in keys]
-    if missing or extra:
-        raise ReferenceFormatError(f"{where}: fields differ from A5 (missing {missing}, unexpected "
-                                   f"{extra}); expected exactly {list(keys)}")
+    if missing:
+        raise ReferenceFormatError(f"{where}: A5 fields missing: {missing}; required "
+                                   f"{list(keys)} (extra fields are ignored)")
 
 
 def parse_reference(data, where="reference", dataset=None, subset=None):
@@ -335,12 +360,14 @@ def parse_reference(data, where="reference", dataset=None, subset=None):
          "squares": [{"grid": [lat_grid, lon_grid], "count": 1192, "area": 0}, ...],
          "areas":   [{"id": 0, "peak": [lat_grid, lon_grid], "peak_count": 3238, "size": 870}, ...]}
 
-    Raises ReferenceFormatError for any other format and for a file that contradicts A5: exactly
-    these fields, integer grid coordinates, no square twice, every count >= T, every area id used,
-    size = the area's squares, peak = a square of the area with the highest count, and the areas
-    equal to the 8-connected components of Q (connected_areas). dataset/subset, if given, must
-    match the file. Returns {"dataset", "subset", "tau", "T", "delta", "squares": {grid: count},
-    "area_of": {grid: area id}, "areas": [...], "path": where}.
+    Raises ReferenceFormatError for any other format and for a file that contradicts A5: every one
+    of these fields (extra fields at any level are allowed and ignored), integer grid coordinates,
+    no square twice, every count >= T, every area id used, size = the area's squares, peak = a
+    square of the area with the highest count, and the areas equal to the 8-connected components
+    of Q (connected_areas). dataset/subset, if given, must match the file. Whether tau, delta and T
+    are A5's is checked separately (check_reference_setting). Returns {"dataset", "subset", "tau",
+    "T", "delta", "squares": {grid: count}, "area_of": {grid: area id}, "areas": [...],
+    "path": where}.
     """
     _keys(data, REFERENCE_KEYS, where)
     if not isinstance(data["dataset"], str) or not isinstance(data["subset"], str):
@@ -428,6 +455,26 @@ def load_reference(path, dataset=None, subset=None):
     return ref
 
 
+def check_reference_setting(ref, ns):
+    """A5's setting for the reference: tau = 0.02, delta = 5 and T = max(1, floor(0.02 N)) for
+    every N in ns (the subset's N, from its runs). A file made with other parameters is the wrong
+    file: raises ReferenceFormatError naming every difference."""
+    where = bc.relpath(ref["path"]) if isinstance(ref["path"], Path) else ref["path"]
+    problems = []
+    if not math.isclose(ref["tau"], bc.REFERENCE_TAU, rel_tol=1e-9):
+        problems.append(f"tau = {ref['tau']:g}, A5 requires {bc.REFERENCE_TAU:g}")
+    if ref["delta"] != bc.REFERENCE_DELTA:
+        problems.append(f"delta = {ref['delta']}, A5 requires {bc.REFERENCE_DELTA}")
+    for n in sorted(ns):
+        want = bc.threshold_abs(n, bc.REFERENCE_TAU)
+        if ref["T"] != want:
+            problems.append(f"T = {ref['T']}, A5 requires max(1, floor({bc.REFERENCE_TAU:g} x {n})) "
+                            f"= {want} for N = {n}")
+    if problems:
+        raise ReferenceFormatError(f"{where}: {'; '.join(problems)}. This is not A5's reference "
+                                   f"(wrong file?)")
+
+
 # --- Leakage (A7) and statistics ---------------------------------------------------------------
 
 
@@ -484,13 +531,14 @@ def run_metrics(line, reference=None):
         "bytes_online_collector_to_server_s1": c2s[1],
         "bytes_online_server_to_collector_s0": s2c[0],
         "bytes_online_server_to_collector_s1": s2c[1],
-        "bytes_online_server_to_server": b["online"]["server_to_server"],
+        "bytes_online_server_to_server": server_to_server_total(b["online"]["server_to_server"]),
         "bytes_online_total": sum(links),
         "bytes_online_max_link": max(links),
         **leakage_metrics(line["leakage"]),
     }
     reported = reported_grid(line["output"])
     m["outputs"] = len(reported)
+    m["outputs_no_coords"] = len(line["output"]) - len(reported)
     for p in PROFILES:
         key = p.name.lower()
         m[f"online_comm_{key}_ms"] = comm_ms(model_rounds, links, p)
@@ -619,7 +667,9 @@ def summary_row(runs, client=None, reference=None):
         values = summarize([r[source].get(key) for r in measured])
         for stat, v in zip(STATS, values):
             row[f"{metric}_{stat}"] = v
-    row["selfcheck_exact"] = bool(measured) and all(r["check"]["exact"] for r in measured)
+    exact = [r["check"]["exact"] for r in measured]
+    # Empty (None) when a measured run reveals no counts (A9 spec v3.1): only locations compared.
+    row["selfcheck_exact"] = None if any(e is None for e in exact) else bool(measured) and all(exact)
     row["selfcheck_failed_runs"] = sum(not r["check"]["ok"] for r in measured)
     row["reference_areas"] = None if reference is None else len(reference["areas"])
     row["reference_squares"] = None if reference is None else len(reference["squares"])
@@ -642,6 +692,31 @@ def summary_row(runs, client=None, reference=None):
             "client_upload_bytes_per_client": c["upload_bytes_per_client"],
         })
     return row
+
+
+def _fextra(v):
+    return f"{int(v):,}" if v == int(v) else f"{v:,.3f}"
+
+
+def extra_values(runs):
+    """{key: text} for the runs' A9 `extra` objects (spec v3.1), over the measured runs (warm-ups
+    excluded): numbers as median [min–max], anything else as its distinct JSON values. A key that
+    only some runs have gets "(k of n runs)". Empty if no run has `extra`."""
+    measured = [r["line"] for r in runs if not r["line"]["warmup"]]
+    keys = list(dict.fromkeys(k for x in measured for k in (x.get("extra") or {})))
+    out = {}
+    for key in keys:
+        values = [x["extra"][key] for x in measured if key in (x.get("extra") or {})]
+        if all(_is_num(v) for v in values):
+            med, lo, hi = summarize(values)
+            text = _fextra(med) if lo == hi else f"{_fextra(med)} [{_fextra(lo)}–{_fextra(hi)}]"
+        else:
+            text = " / ".join(dict.fromkeys(json.dumps(v, ensure_ascii=False, sort_keys=True,
+                                                       separators=(",", ":")) for v in values))
+        if len(values) < len(measured):
+            text += f" ({len(values)} of {len(measured)} runs)"
+        out[key] = text
+    return out
 
 
 def csv_value(v):
@@ -737,8 +812,8 @@ def duplicate_keys(rows):
 
 def mastic_checks(rows):
     """B3 sanity checks on the summary rows of the Mastic system: [(check, row, expected, got, ok)]."""
-    batch = run_bench.BASE_CONFIG["add_report_share_batch_size"]
-    flp_batch = run_bench.BASE_CONFIG["query_flp_batch_size"]
+    batch = bc.BASE_CONFIG["add_report_share_batch_size"]
+    flp_batch = bc.BASE_CONFIG["query_flp_batch_size"]
     out = []
     for r in rows:
         if r["system"] != "mastic" or not isinstance(r["n_clients"], (int, float)):
@@ -927,7 +1002,9 @@ def tables_md(rows, info):
     out += ["", "## 3. Communication (as measured)", "",
             "Bytes are the application-level size of each message as actually sent (bincode varint "
             "for Mastic), per server; framing is not counted. Mastic's two servers never talk to "
-            "each other: the driver relays everything, so server ↔ server is 0 (B3).", ""]
+            "each other: the driver relays everything, so server ↔ server is 0 (B3). A system that "
+            "records server ↔ server per direction (A9 spec v3.1) shows the sum of both directions "
+            "here; the network model (section 2) uses the larger direction.", ""]
     out.append(md_table(
         kh + ["Rounds upload (impl.)", "Rounds online", "Rounds extra",
               "Upload client→server per server (MB)", "Online collector→server per server (kB)",
@@ -972,19 +1049,23 @@ def tables_md(rows, info):
             "Mosaic grid. Area recall = share of reference areas with a reported location within "
             "L∞ ≤ δ of one of the area's squares; precision = share of reported locations within "
             "L∞ ≤ δ of a square in Q; F1 = 2PR / (P + R). Counts are not compared: an in-cell count "
-            "and a neighbourhood count measure different things.", ""]
+            "and a neighbourhood count measure different things. Outputs = reported locations; "
+            "outputs without coordinates (not real cells, A9 spec v3.1) are counted separately and "
+            "take no part in the accuracy. Exact is — when the system reveals no counts (A9 spec "
+            "v3.1); the self-check then compares the reported locations only.", ""]
     out.append(md_table(
-        kh + ["T", "Outputs", "Self-check P", "Self-check R", "Exact", "Areas found / reference",
-              "Area recall", "Precision", "F1", "Reference squares (Q)"],
+        kh + ["T", "Outputs", "Outputs without coordinates", "Self-check P", "Self-check R",
+              "Exact", "Areas found / reference", "Area recall", "Precision", "F1",
+              "Reference squares (Q)"],
         [key_cols(r, multi) + [
-            fint(r["threshold_abs"]), frange(r, "outputs", 0),
+            fint(r["threshold_abs"]), frange(r, "outputs", 0), frange(r, "outputs_no_coords", 0),
             fnum(r["selfcheck_precision_min"], 3), fnum(r["selfcheck_recall_min"], 3),
             {True: "yes", False: "**NO**"}.get(r["selfcheck_exact"], DASH),
             DASH if r["reference_areas"] is None
             else f"{frange(r, 'areas_found', 0)} / {fint(r['reference_areas'])}",
             frange(r, "area_recall", 3), frange(r, "precision", 3), frange(r, "f1", 3),
             fint(r["reference_squares"])] for r in rows],
-        ka + ["r"] * 10))
+        ka + ["r"] * 11))
     if info.get("references"):
         out += ["", "Reference files:", ""] + [f"- {x}" for x in info["references"]]
 
@@ -1039,6 +1120,21 @@ def tables_md(rows, info):
             [[d["rep"], "yes" if d["warmup"] else "no", d["runs"], fnum(d["median"], 3),
               fnum(d["min"], 3), fnum(d["max"], 3)] for d in info["drift"]],
             ["r", "l", "r", "r", "r", "r"]))
+
+    extra = info.get("extra") or {}
+    with_extra = [r for r in rows if extra.get(row_key(r))]
+    if with_extra:
+        keys = list(dict.fromkeys(k for r in with_extra for k in extra[row_key(r)]))
+        out += ["", "## 9. System-specific values (A9 `extra`)", "",
+                "The values of each run's `extra` object (A9 spec v3.1), which have no field or "
+                "summary column of their own: numbers as median [min–max] over the measured runs, "
+                "other values as their distinct values. They are not in the summary CSV, so "
+                "`--combine` does not compare them.", ""]
+        out.append(md_table(
+            kh + [f"`{k}`" for k in keys],
+            [key_cols(r, multi) + [extra[row_key(r)].get(k, DASH) for k in keys]
+             for r in with_extra],
+            ka + ["r"] * len(keys)))
     return "\n".join(out) + "\n"
 
 
@@ -1075,7 +1171,9 @@ COMPARE_GROUPS = (
     ("Accuracy against the reference (A5)", (("area_recall", "Area recall", 3),
                                             ("precision", "Precision", 3), ("f1", "F1", 3),
                                             ("areas_found", "Areas found", 0),
-                                            ("outputs", "Outputs", 0))),
+                                            ("outputs", "Outputs", 0),
+                                            ("outputs_no_coords", "Outputs without coordinates",
+                                             0))),
     ("Leakage (A7)", (("revealed_aggregates_total", "Revealed aggregates", 0),
                       ("client_validity_bits", "Validity bits", 0))),
 )
@@ -1126,20 +1224,79 @@ def parameter_mismatches(rows):
     return out
 
 
+# The baseline of every ratio in comparison.md: Mastic at its own tau (0.005). The main comparison
+# is Mastic at 0.005 vs Mosaic at its native 0.02 (A2).
+BASELINE_SERIES = ("mastic", bc.THRESHOLDS["mastic"])
+
+
+def baseline_first(series, system="mastic", tau=None):
+    """series with the baseline first: (system, tau) if present (tau None = A2's tau of that
+    system), else the first series. Returns (baseline, ordered series)."""
+    if not series:
+        return None, []
+    want = (system, bc.THRESHOLDS.get(system) if tau is None else tau)
+    base = want if want in series else series[0]
+    return base, [base] + [s for s in series if s != base]
+
+
+def compare_tables(by_key, keys, series, level="##"):
+    """The COMPARE_GROUPS tables for `series` (baseline first): one column per series and metric,
+    then one ratio column per later series, divided by the baseline and labelled with both."""
+    base, out = series[0], []
+    for title, metrics in COMPARE_GROUPS:
+        header = ["Encoding", "Subset", "N"]
+        for _, label, _ in metrics:
+            header += [f"{label} ({series_label(s)})" for s in series]
+            header += [f"{label} ratio {series_label(s)} / {series_label(base)}"
+                       for s in series[1:]]
+        body = []
+        for k in keys:
+            per = by_key[k]
+            if not any(s in per for s in series):
+                continue
+            n = next(per[s] for s in series if s in per)["n_clients"]
+            cells = [f"`{k[0]}`", subset_label(k[1]), fint(n)]
+            for metric, _, digits in metrics:
+                vals = [per[s][f"{metric}_median"] if s in per else None for s in series]
+                cells += [fnum(v, digits) for v in vals]
+                a = vals[0]
+                cells += [fnum(b / a, 2) if isinstance(a, float) and isinstance(b, float) and a
+                          else DASH for b in vals[1:]]
+            body.append(cells)
+        out += [f"{level} {title}", "",
+                md_table(header, body, ["l", "l"] + ["r"] * (len(header) - 2)), ""]
+    return out
+
+
 def comparison_md(rows, systems, sources):
     rows = row_order(rows, systems)
-    series = series_of(rows, systems)
+    base, series = baseline_first(series_of(rows, systems), *BASELINE_SERIES)
     by_key = defaultdict(dict)
     for r in rows:
         by_key[(r["encoding"], r["subset"])][(r["system"], r["threshold_frac"])] = r
     keys = sorted(by_key, key=lambda k: (list(bc.ENCODINGS).index(k[0]) if k[0] in bc.ENCODINGS
                                          else 99, k[0], list(bc.SUBSETS).index(k[1])
                                          if k[1] in bc.SUBSETS else 99))
-    base = series_label(series[0]) if series else ""
+    # Taus at which two or more systems ran: a same-tau section each.
+    shared = [t for t in sorted({t for _, t in series}, key=tau_key)
+              if len({s for s, t2 in series if t2 == t}) > 1]
+    base_label = series_label(base) if base else ""
     out = [f"# Comparison: {' vs '.join(systems)}", "",
            "Generated by `bench/scripts/evaluate.py --combine`. Medians over the measured runs. "
-           "One column per system and threshold τ (each system runs at its own τ, A2); the ratio "
-           f"columns divide each later column by the first ({base}).", ""]
+           "One column per system and threshold τ: each system runs at its own τ (A2), so the "
+           f"main comparison is Mastic at τ = {bc.THRESHOLDS['mastic']:g} vs Mosaic at τ = "
+           f"{bc.THRESHOLDS['mosaic']:g}. Every ratio divides a column by the baseline, "
+           f"{base_label}, and its label names both τ values. A ratio between different τ "
+           "compares answers to different questions (A2), so it is only indicative.", ""]
+    if len(shared) == 1:
+        out += [f"The section *Same τ = {ftau(shared[0])}* at the end compares the systems at "
+                "that one τ.", ""]
+    elif shared:
+        out += [f"The sections *Same τ* at the end compare the systems at one τ each "
+                f"({', '.join(f'τ = {ftau(t)}' for t in shared)}).", ""]
+    else:
+        out += ["No τ is shared by two systems (Mosaic at τ = "
+                f"{bc.THRESHOLDS['mastic']:g} is optional, A2), so there is no same-τ table.", ""]
     out += [f"- `{s}`: {src}" for s, src in sources.items()]
     out += [f"- Series: {', '.join(series_label(s) for s in series)}", ""]
     mismatches = parameter_mismatches(rows)
@@ -1151,39 +1308,30 @@ def comparison_md(rows, systems, sources):
                 "T is equal wherever two systems ran the same τ, and T = max(1, ⌊τ·N⌋) in every "
                 "row."]
     out.append("")
-    for title, metrics in COMPARE_GROUPS:
-        header = ["Encoding", "Subset", "N"]
-        for _, label, _ in metrics:
-            header += [f"{label} ({series_label(s)})" for s in series]
-            header += ([f"{label} ratio"] if len(series) == 2 else
-                       [f"{label} ratio {series_label(s)}" for s in series[1:]])
-        body = []
-        for k in keys:
-            per = by_key[k]
-            n = next(iter(per.values()))["n_clients"]
-            cells = [f"`{k[0]}`", subset_label(k[1]), fint(n)]
-            for metric, _, digits in metrics:
-                vals = [per[s][f"{metric}_median"] if s in per else None for s in series]
-                cells += [fnum(v, digits) for v in vals]
-                a = vals[0]
-                cells += [fnum(b / a, 2) if isinstance(a, float) and isinstance(b, float) and a
-                          else DASH for b in vals[1:]]
-            body.append(cells)
-        out += [f"## {title}", "", md_table(header, body, ["l", "l"] + ["r"] * (len(header) - 2)),
-                ""]
+    out += compare_tables(by_key, keys, series)
+
+    # Client cost does not depend on tau: one column per system, the baseline's system first.
+    client_systems = list(dict.fromkeys(([base[0]] if base else []) + list(systems)))
     header = ["Encoding"]
     for _, label, _ in COMPARE_CLIENT:
-        header += [f"{label} ({s})" for s in systems]
+        header += [f"{label} ({s})" for s in client_systems]
     body = []
     for enc in dict.fromkeys(k[0] for k in keys):
         per = {}
-        for s in systems:
+        for s in client_systems:
             per[s] = next((r for r in rows if r["system"] == s and r["encoding"] == enc), None)
         cells = [f"`{enc}`"]
         for metric, _, digits in COMPARE_CLIENT:
-            cells += [fnum(per[s][metric] if per[s] else None, digits) for s in systems]
+            cells += [fnum(per[s][metric] if per[s] else None, digits) for s in client_systems]
         body.append(cells)
     out += ["## Client cost (A6)", "", md_table(header, body, ["l"] + ["r"] * (len(header) - 1)), ""]
+
+    for tau in shared:
+        _, same = baseline_first([s for s in series if s[1] == tau], BASELINE_SERIES[0], tau)
+        out += [f"## Same τ = {ftau(tau)}: {' vs '.join(series_label(s) for s in same)}", "",
+                f"Every column here is at the same τ = {ftau(tau)}, so the systems answer at the "
+                f"same threshold (A2). Ratios divide by {series_label(same[0])}.", ""]
+        out += compare_tables(by_key, keys, same, level="###")
     return "\n".join(out)
 
 
@@ -1496,7 +1644,8 @@ def make_plots(rows, out_dir, systems):
 # --- Main --------------------------------------------------------------------------------------
 
 
-def banner(lines, out=sys.stderr):
+def banner(lines, out=None):
+    out = out or sys.stderr  # looked up at call time (tests capture stderr)
     bar = "!" * 100
     print(bar, file=out)
     for line in lines:
@@ -1509,9 +1658,13 @@ def evaluate(raw, reference_dir=REFERENCE_DIR):
     tau. Raises ValueError (ReferenceFormatError) for a reference or ground truth that does not fit.
 
     The self-check uses the ground truth at the run's own tau; the accuracy uses the one reference
-    per subset (Mosaic's squares at tau = 0.02), for runs of every tau."""
+    per subset (Mosaic's squares at tau = 0.02), for runs of every tau. Each reference must have
+    A5's setting for the N of its subset's runs (check_reference_setting)."""
     gt_cache, ref_cache, notes = {}, {}, []
     groups = defaultdict(list)
+    n_by_subset = defaultdict(set)
+    for r in raw["runs"]:
+        n_by_subset[(r["line"]["dataset"], r["line"]["subset"])].add(r["line"]["n_clients"])
     for r in raw["runs"]:
         line = r["line"]
         tau = line["params"]["threshold_frac"]
@@ -1520,7 +1673,10 @@ def evaluate(raw, reference_dir=REFERENCE_DIR):
             gt_cache[gt_key] = load_ground_truth(*gt_key)
         if ref_key not in ref_cache:
             ref_path = Path(reference_dir) / f"{ref_key[0]}_{ref_key[1]}.json"
-            ref_cache[ref_key] = load_reference(ref_path, *ref_key) if ref_path.exists() else None
+            ref = load_reference(ref_path, *ref_key) if ref_path.exists() else None
+            if ref is not None:
+                check_reference_setting(ref, n_by_subset[ref_key])
+            ref_cache[ref_key] = ref
         gt = gt_cache[gt_key]
         truth = gt["encodings"].get(line["encoding"]) if gt else None
         reference = ref_cache[ref_key]
@@ -1556,36 +1712,33 @@ def evaluate(raw, reference_dir=REFERENCE_DIR):
     return groups, rows, gt_cache, ref_cache, notes
 
 
-def reference_notes(ref_cache, groups):
-    """Notes where a reference differs from A5's setting (tau = 0.02, delta = 5, T = max(1,
-    floor(tau N)) for the subset's N), and a one-line description of each reference."""
-    n_by_subset = defaultdict(set)
-    for (_, d, _, s, _), runs in groups.items():
-        n_by_subset[(d, s)].update(r["line"]["n_clients"] for r in runs)
-    notes, described = [], []
+def reference_descriptions(ref_cache):
+    """A one-line description of each reference (its setting was checked when it was loaded)."""
+    described = []
     for (d, s), ref in sorted(ref_cache.items()):
         if ref is None:
             continue
-        name = f"reference {d}_{s}"
-        if ref["tau"] != bc.REFERENCE_TAU:
-            notes.append(f"{name}: tau = {ref['tau']}, A5 says {bc.REFERENCE_TAU}")
-        if ref["delta"] != bc.REFERENCE_DELTA:
-            notes.append(f"{name}: delta = {ref['delta']}, A5 says {bc.REFERENCE_DELTA}; matching "
-                         f"uses the file's delta")
-        for n in sorted(n_by_subset[(d, s)]):
-            if ref["T"] != bc.threshold_abs(n, ref["tau"]):
-                notes.append(f"{name}: T = {ref['T']}, but max(1, floor({ref['tau']} x {n})) = "
-                             f"{bc.threshold_abs(n, ref['tau'])}")
-        peaks = "; ".join(f"area {a['id']}: {a['size']} squares, peak {list(a['peak'])} "
+        peaks ="; ".join(f"area {a['id']}: {a['size']} squares, peak {list(a['peak'])} "
                           f"({a['peak_count']:,})" for a in ref["areas"][:6])
         more = f"; … {len(ref['areas']) - 6} more" if len(ref["areas"]) > 6 else ""
         described.append(f"`{bc.relpath(ref['path'])}`: τ {ref['tau']:g}, T {ref['T']:,}, "
                          f"δ {ref['delta']}; |Q| = {len(ref['squares']):,} squares in "
                          f"{len(ref['areas'])} areas ({peaks}{more})")
-    return notes, described
+    return described
+
+
+def safe_console():
+    """Never fail on a console or pipe that cannot encode τ, δ, ≥ … (on Windows, redirected output
+    is cp1252): such characters are written as \\u escapes instead."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="backslashreplace")
+        except (AttributeError, ValueError):
+            pass
 
 
 def main(argv=None):
+    safe_console()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--combine", metavar="CSV",
                         help="another system's summary_<system>.csv: write comparison.md and "
@@ -1612,7 +1765,9 @@ def main(argv=None):
     except ValueError as e:
         kind = "reference" if isinstance(e, ReferenceFormatError) else "ground truth"
         banner([f"Cannot use the {kind}: {e}",
-                "Expected format: A5 of bench/BENCHMARK_MASTIC.md. Nothing was written."
+                f"Expected: A5 of bench/BENCHMARK_MASTIC.md (its format, tau = "
+                f"{bc.REFERENCE_TAU:g}, delta = {bc.REFERENCE_DELTA}, T = max(1, floor("
+                f"{bc.REFERENCE_TAU:g} N))). Nothing was written."
                 if kind == "reference" else "Regenerate it with ground_truth.py. Nothing was written."])
         return 2
     runs = raw["runs"]
@@ -1643,16 +1798,21 @@ def main(argv=None):
                  "blocked until this is fixed."]
         for r in failed:
             c = r["check"]
+            exact = {True: "yes", False: "NO", None: "not revealed"}[c["exact"]]
             lines.append(f"{run_label(r['line'])}: precision {fnum(c['precision'], 3)}, recall "
-                         f"{fnum(c['recall'], 3)}, exact {'yes' if c['exact'] else 'NO'}; "
+                         f"{fnum(c['recall'], 3)}, exact {exact}; "
                          f"{'; '.join(c.get('problems', []))} [{r['where']}]")
         banner(lines)
         banners.append("> **⚠ SELF-CHECK FAILED — the benchmark is blocked (A5).**")
         banners += [f"> - {x}" for x in lines[1:]]
     else:
+        no_counts = sum(r["check"]["exact"] is None for r in runs)
+        counts = ("every count exact" if not no_counts else
+                  f"every revealed count exact ({no_counts} runs reveal no counts: locations "
+                  f"compared only)")
         msg = (f"Self-check: PASS. All {len(runs)} runs ({len(measured)} measured + "
                f"{len(runs) - len(measured)} warm-ups) equal the plaintext ground truth: precision "
-               f"1.0, recall 1.0, every count exact, centres on the same Mosaic-grid cells.")
+               f"1.0, recall 1.0, {counts}, centres on the same Mosaic-grid cells.")
         print(msg)
         banners.append(f"> **{msg}**")
     if raw["problems"]:
@@ -1679,8 +1839,7 @@ def main(argv=None):
                f"Mosaic grid).")
     print(msg)
     banners += ["", f"> {msg}"]
-    ref_notes, ref_described = reference_notes(ref_cache, groups)
-    notes += ref_notes
+    ref_described = reference_descriptions(ref_cache)
 
     if notes:
         banners += [""] + [f"> Note: {n}" for n in notes]
@@ -1704,7 +1863,8 @@ def main(argv=None):
     elif checks:
         print(f"B3 sanity checks: {len(checks)} of {len(checks)} pass")
     info = {"inputs": inputs, "banners": banners, "checks": checks, "drift": drift_table(groups),
-            "references": ref_described}
+            "references": ref_described,
+            "extra": {key: extra_values(runs) for key, runs in groups.items()}}
     tables_path.write_text(tables_md(all_rows, info), encoding="utf-8", newline="\n")
     print(f"Wrote {bc.relpath(tables_path)}")
     systems = list(summaries)

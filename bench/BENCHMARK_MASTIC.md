@@ -52,16 +52,31 @@ Never subset with the driver's `-n`: it keeps the earliest rides, and the files 
 |---|---|
 | Encoding | `mosaic_grid`, `geohash`, `h3`, `morton` |
 | Subset | `day_1of3`, `day_2of3`, `day_3of3` |
+| Threshold τ | per system, see below |
 | Repetitions | 1 warm-up (discarded) + 5 measured |
 | Malicious clients | none |
 
-Per system: 4 encodings × 3 subsets × 6 runs = **72 runs**.
+One threshold setting = 4 encodings × 3 subsets × 6 runs = **72 runs**.
+
+**The two systems answer different questions**, so each runs at its own native threshold:
+
+- **Mastic** counts the rides *inside* a cell: "which cells have at least T pickups in the cell itself?"
+- **Mosaic** counts the rides *near* a square: "which squares have at least T pickups within δ squares in every direction (L∞)?"
+
+Neighbourhood counts are much larger than in-cell counts, so the same τ means very different things in the two systems.
+
+| System | τ | T for the three day subsets | Runs |
+|---|---|---|---|
+| Mastic | **0.005** (the existing day configs) | 35 / 71 / 107 | 72 (**done**) |
+| Mosaic, native | **0.02** (Mosaic's code and its published `results.json`: 1180 = 2% of the week sample) | 143 / 287 / 431 | 72 (main) |
+| Mosaic, matched to Mastic | 0.005 | 35 / 71 / 107 | 72, **optional**: run only if prompt 2's timing shows it is affordable |
+
+Both use T = max(1, ⌊τ·N⌋). Mastic is not run at τ = 0.02: no single grid square contains 431 rides (the busiest has 214), so it would output nothing.
 
 | Parameter | Value (same in both systems) |
 |---|---|
-| Threshold | fraction τ = **0.005** of the subset size (the value in the existing day configs; confirm); T = max(1, ⌊τ·N⌋), i.e. 35 / 71 / 107 for the three day subsets |
 | Weight | constant: every ride is one vote |
-| Mosaic radius δ | **5** grid cells, L∞ (from Mosaic's `results.json`; confirm) |
+| Mosaic radius δ | **5** grid squares, L∞ (from Mosaic's `results.json`), i.e. an 11 × 11-square neighbourhood, about 1.2 km × 1.1 km. For H3, δ counts hexagon steps: δ = 5 (91 hexagons, ≈ 1.37 km²) is the main setting; δ = 4 (Mosaic's H3 default, 61 hexagons) is computed in the ground truth and run only if time allows |
 | `mosaic_grid` | origin (29.267, −98.743), 0.001° cells, 11 bits per axis, n = 22 |
 | `geohash` | prefix `9v6`, 21 bits, n = 21 (area-matched to the grid) |
 | `h3` | prefix `82489ffffffffff`, resolution 10, n = 24 (area-matched to the grid) |
@@ -111,17 +126,32 @@ If an encoding uses different parameters in either codebase, align them before b
 
 All reported locations are converted to the Mosaic grid (cell centre → grid coordinates) before comparison.
 
-**Self-check (correctness).** Compare each run's output with the plaintext answer of the same system, encoding and subset: precision, recall, and whether every count is exact. Expected 1.0 / 1.0 / exact; anything else is a bug and blocks the benchmark.
+**Self-check (correctness).** Compare each run's output with the plaintext answer of the same system, encoding, subset and τ: precision, recall, and whether every count is exact. Expected 1.0 / 1.0 / exact; anything else is a bug and blocks the benchmark.
 
-**Accuracy against the reference.** The reference hotspots are Mosaic's plaintext fuzzy hotspots, computed on the Mosaic grid with the same T and δ, by the Mosaic harness (`bench/reference/day_<subset>.json`). For each run:
+**Reference: Mosaic's fuzzy hotspots.** Computed by the Mosaic harness, replicating Mosaic's plaintext definition exactly, on the Mosaic grid with **τ = 0.02 and δ = 5**, for each subset:
+
+- **Q:** the set of qualifying squares (neighbourhood count ≥ T), each with its neighbourhood count. Full day: 916 squares.
+- **Areas:** Q split into connected groups of squares that touch, including diagonally (8-neighbourhood). Each area has a peak square, the one with the highest neighbourhood count. Full day: 4 areas, the largest downtown.
+
+File `bench/reference/day_<subset>.json` (the numbers are only an illustration of the format):
+
+```json
+{"dataset": "day", "subset": "3of3", "tau": 0.02, "T": 431, "delta": 5,
+ "squares": [{"grid": [lat_grid, lon_grid], "count": 1192, "area": 0}],
+ "areas":   [{"id": 0, "peak": [lat_grid, lon_grid], "peak_count": 3238, "size": 870}]}
+```
+
+**Accuracy against the reference**, for every run of either system (all locations on the Mosaic grid):
 
 | Metric | Definition |
 |---|---|
-| recall | share of reference hotspots with a reported location within L∞ ≤ δ grid cells |
-| precision | share of reported locations within L∞ ≤ δ of some reference hotspot |
-| F1 | 2·P·R / (P + R) |
-| outputs | number of reported cells or points |
-| count error | median \|reported − reference\| / reference over matched pairs (each reference hotspot matched to its nearest reported location) |
+| `area_recall` | share of reference areas with at least one reported location within L∞ ≤ δ of a square of that area |
+| `precision` | share of reported locations within L∞ ≤ δ of some square in Q |
+| `f1` | 2·P·R / (P + R) |
+| `areas_found` / `reference_areas` | number of areas hit / number of areas |
+| `outputs` / `reference_squares` | number of reported locations / \|Q\| |
+
+Counts are not compared: an in-cell count and a neighbourhood count measure different things, so a count error would be large by construction.
 
 ## A6. Client micro-benchmark
 
@@ -189,6 +219,13 @@ One JSON object per line in `bench/results/raw/<system>.jsonl`, where `system` i
 }
 ```
 
+Additions (spec v3.1, needed for Mosaic; existing Mastic lines stay valid):
+
+- **`server_to_server`** may be a single number (Mastic: `0`) or `[sent by server0, sent by server1]`. Links are full duplex, so the network model's `max_link` uses the **larger direction**; totals use the sum.
+- **`output[].count`** may be `null` when a system doesn't reveal counts (Mosaic). The self-check then compares the sets of reported locations only.
+- **`output[].lat` / `lon`** may be `null` for outputs that are not real cells (Mosaic's H3 crawl also outputs coordinate triples that are not H3 cells). Those don't count as `outputs` in A5.
+- **`extra`** (optional object) holds system-specific values that have no field of their own, e.g. `{"h3_noncell_outputs": 4573, "dealer_bytes": 120, "channel_buffer_bytes": 67108864}`. The schema check only requires it to be an object. Its values are shown in `tables.md`, not in the summary columns.
+
 The client micro-benchmark writes the same header fields plus the following to `bench/results/raw/<system>_client.jsonl`:
 
 ```json
@@ -198,14 +235,14 @@ The client micro-benchmark writes the same header fields plus the following to `
 
 ## A10. Outputs
 
-- `bench/results/summary_<system>.csv`: one row per encoding × subset, with the median, min and max of every metric, modelled LAN/WAN times, client metrics, leakage counters and accuracy. **The columns are identical for both systems**, so the two files can be concatenated.
+- `bench/results/summary_<system>.csv`: one row per encoding × subset × τ (`threshold_frac` is a column and part of the row key), with the median, min and max of every metric, modelled LAN/WAN times, client metrics, leakage counters and accuracy. **The columns are identical for both systems**, so the two files can be concatenated.
 - `bench/results/tables.md`: timings, communication, client cost, accuracy, leakage.
 - `bench/results/plots/` (PNG + PDF, one colour per encoding):
   1. online time vs N (LAN and WAN panels);
   2. bytes vs N;
   3. rounds per encoding;
   4. client time and report size per encoding;
-  5. recall/precision per encoding;
+  5. area recall / precision per encoding (and per τ);
   6. revealed aggregates vs N.
 - **Comparison (at the end):** copy the other system's `summary_<system>.csv` into `bench/results/` and run `evaluate.py --combine <file>`. This produces the side-by-side tables and plots with one marker per system.
 
@@ -262,7 +299,8 @@ mastic_for_fuzzy_HH/                 (branch `benchmarking`)
 ## B4. Accuracy in Mastic
 
 - **Self-check:** exact heavy cells per encoding, using the same logic as `scripts/check_heavy_hitters.py`. Import its encoders; don't re-implement them.
-- **Accuracy against the reference:** read `bench/reference/day_<subset>.json` once the Mosaic harness has produced it. Until then, `evaluate.py` skips these columns and says so.
+- **Accuracy against the reference:** read `bench/reference/day_<subset>.json` (format in A5) once the Mosaic harness has produced it, and compute the A5 metrics. Until then, `evaluate.py` leaves these columns empty and says so.
+- **Expected picture (full day):** Mastic's 8 grid cells are 6 downtown cells (112–214 rides inside each, 1,192–3,238 within δ) and 2 airport cells (158 and 123 inside, but only 409 and 396 within δ, below Mosaic's 431). So the 6 downtown cells fall inside the downtown area, and the airport cells are outside all reference areas unless they are within δ of another qualifying square.
 
 ## B5. Leakage in Mastic (starting list for `LEAKAGE_mastic.md`)
 

@@ -1,0 +1,35 @@
+{
+ "day": "2019-10-11",
+ "join": "2b segment, exact or partial (one cross street)",
+ "markers_active": 4327,
+ "markers_located": 4300,
+ "markers_unlocated": 27,
+ "bays_2025": 29053,
+ "segments": 294,
+ "encodings": {
+  "morton": {
+   "cells": 1348,
+   "cells_with_markers": 252,
+   "markers_in_area": 4300,
+   "markers_dropped": 0,
+   "bays_in_area": 24647,
+   "bays_dropped": 4406
+  },
+  "geohash": {
+   "cells": 1685,
+   "cells_with_markers": 254,
+   "markers_in_area": 4300,
+   "markers_dropped": 0,
+   "bays_in_area": 29053,
+   "bays_dropped": 0
+  },
+  "h3": {
+   "cells": 1028,
+   "cells_with_markers": 205,
+   "markers_in_area": 4300,
+   "markers_dropped": 0,
+   "bays_in_area": 29053,
+   "bays_dropped": 0
+  }
+ }
+}

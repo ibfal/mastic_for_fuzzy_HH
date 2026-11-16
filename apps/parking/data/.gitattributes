@@ -1,0 +1,4 @@
+# Keep the parking data byte for byte: no line-ending conversion, so their SHA-256 values in
+# manifest.json and prepare_manifest.json hold on every checkout and in the copy sent to the
+# Mosaic codebase (same rule as bench/data/.gitattributes).
+*.csv -text

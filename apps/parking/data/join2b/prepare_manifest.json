@@ -1,0 +1,80 @@
+{
+ "description": "P2 preparation outputs (apps/parking/scripts/prepare.py)",
+ "day": "2019-10-11",
+ "join": "2b segment, exact or partial (one cross street)",
+ "cleaning": "2 min <= duration <= 24 h",
+ "stitching": "contiguous vehicle-present rows of a StreetMarker, gap <= 1 s",
+ "fault_flag": "bay-day (StreetMarker x arrival date) with > 80 stays, or >= 10 stays of which > 50% under 2 min",
+ "designs": {
+  "snapshot": "one report per hour h if arrival <= 2019-10-11 h:30 < departure; at most one per (bay, hour), the stay that arrived first (D1)",
+  "overlap": "one report per hour of the day the stay overlaps",
+  "arrivals": "one report per stay arriving on the day, hour = arrival hour"
+ },
+ "columns": [
+  "start_location_lat",
+  "start_location_long",
+  "hour",
+  "stay_id",
+  "street_marker",
+  "segment",
+  "join_method",
+  "fault_flag",
+  "arrival",
+  "departure"
+ ],
+ "steps": {
+  "sensor rows": 42672743,
+  "vehicle-present rows": 22591812,
+  "stays": 17695077,
+  "stays arriving in 2019": 17695077,
+  "clean stays": 12601568,
+  "clean stays joined (2b)": 12510585,
+  "clean joined stays arriving on the day": 42970,
+  "clean joined stays overlapping the day": 44198,
+  "fault-flagged clean joined stays overlapping the day": 4589,
+  "design B snapshot reports before deduplication (day)": 46522,
+  "second reports of a bay in the same hour removed (D1)": 51,
+  "design B snapshot reports (day)": 46471,
+  "design B overlap reports (day)": 89725,
+  "design A reports (day)": 42970
+ },
+ "benchmark": null,
+ "files": {
+  "apps/parking/data/join2b/parking_day_snapshot.csv": {
+   "rows": 46471,
+   "sha256": "9c494941e86ded3d0697b15489a7bde5154e813fbba4a704c601e4e5f933bf4c"
+  },
+  "apps/parking/data/join2b/parking_day_overlap.csv": {
+   "rows": 89725,
+   "sha256": "9ec5549d7760a9bedc195f3464bfcf3312c4b36670819a6fe22798ef9d6464ad"
+  },
+  "apps/parking/data/join2b/parking_day_arrivals.csv": {
+   "rows": 42970,
+   "sha256": "dc1865a90847d2a1be3e0dad9adeec3302089d55fe5c81f7f37856c447871f71"
+  },
+  "apps/parking/data/join2b/parking_day_snapshot_w00-04.csv": {
+   "rows": 3985,
+   "sha256": "3b773b763f6e433f2e9ebeadf1a1088f1ca1e78e522de8869b128dccca1f26d7"
+  },
+  "apps/parking/data/join2b/parking_day_snapshot_w04-08.csv": {
+   "rows": 4381,
+   "sha256": "11b0ac47a3f31454b002762c590553ae7341a606de6bd58ee669515896bf6884"
+  },
+  "apps/parking/data/join2b/parking_day_snapshot_w08-12.csv": {
+   "rows": 9558,
+   "sha256": "9477be56fb6d65e7a90b7e679d900beb61985020e123fe5310a03beea196a4b8"
+  },
+  "apps/parking/data/join2b/parking_day_snapshot_w12-16.csv": {
+   "rows": 10673,
+   "sha256": "f721188f518fac78b8be24d73bcd65a0746962c25d3a77b4ed0c0165571b001d"
+  },
+  "apps/parking/data/join2b/parking_day_snapshot_w16-20.csv": {
+   "rows": 8594,
+   "sha256": "bfa0bd26a7a5053bdcaf9b1f2f085a94efe8cc3aaaa1df2fa36e8b704b24fd3a"
+  },
+  "apps/parking/data/join2b/parking_day_snapshot_w20-24.csv": {
+   "rows": 9280,
+   "sha256": "0342be640f4eb173cb2dd51c8721653cfed40ac52ee6dede57ac4dc6451890b3"
+  }
+ }
+}

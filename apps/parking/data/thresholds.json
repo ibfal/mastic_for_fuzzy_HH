@@ -1,0 +1,425 @@
+{
+ "day": "2019-10-11",
+ "design": "B snapshot",
+ "delta": 3,
+ "mastic": {
+  "app": {
+   "morton": {
+    "N": 40663,
+    "dropped": 0,
+    "distinct_cells": 232,
+    "by_tau": {
+     "0.005": {
+      "T": 203,
+      "cells": 71
+     },
+     "0.0075": {
+      "T": 304,
+      "cells": 41
+     },
+     "0.01": {
+      "T": 406,
+      "cells": 21
+     },
+     "0.0125": {
+      "T": 508,
+      "cells": 10
+     },
+     "0.015": {
+      "T": 609,
+      "cells": 4
+     }
+    }
+   },
+   "geohash": {
+    "N": 40663,
+    "dropped": 0,
+    "distinct_cells": 236,
+    "by_tau": {
+     "0.005": {
+      "T": 203,
+      "cells": 73
+     },
+     "0.0075": {
+      "T": 304,
+      "cells": 39
+     },
+     "0.01": {
+      "T": 406,
+      "cells": 17
+     },
+     "0.0125": {
+      "T": 508,
+      "cells": 8
+     },
+     "0.015": {
+      "T": 609,
+      "cells": 4
+     }
+    }
+   },
+   "h3": {
+    "N": 40663,
+    "dropped": 0,
+    "distinct_cells": 192,
+    "by_tau": {
+     "0.005": {
+      "T": 203,
+      "cells": 82
+     },
+     "0.0075": {
+      "T": 304,
+      "cells": 51
+     },
+     "0.01": {
+      "T": 406,
+      "cells": 28
+     },
+     "0.0125": {
+      "T": 508,
+      "cells": 12
+     },
+     "0.015": {
+      "T": 609,
+      "cells": 6
+     }
+    }
+   }
+  },
+  "3of3": {
+   "morton": {
+    "N": 21581,
+    "dropped": 0,
+    "distinct_cells": 230,
+    "by_tau": {
+     "0.005": {
+      "T": 107,
+      "cells": 76
+     },
+     "0.0075": {
+      "T": 161,
+      "cells": 40
+     },
+     "0.01": {
+      "T": 215,
+      "cells": 23
+     },
+     "0.0125": {
+      "T": 269,
+      "cells": 11
+     },
+     "0.015": {
+      "T": 323,
+      "cells": 4
+     }
+    }
+   },
+   "geohash": {
+    "N": 21581,
+    "dropped": 0,
+    "distinct_cells": 234,
+    "by_tau": {
+     "0.005": {
+      "T": 107,
+      "cells": 78
+     },
+     "0.0075": {
+      "T": 161,
+      "cells": 38
+     },
+     "0.01": {
+      "T": 215,
+      "cells": 19
+     },
+     "0.0125": {
+      "T": 269,
+      "cells": 9
+     },
+     "0.015": {
+      "T": 323,
+      "cells": 4
+     }
+    }
+   },
+   "h3": {
+    "N": 21581,
+    "dropped": 0,
+    "distinct_cells": 190,
+    "by_tau": {
+     "0.005": {
+      "T": 107,
+      "cells": 85
+     },
+     "0.0075": {
+      "T": 161,
+      "cells": 49
+     },
+     "0.01": {
+      "T": 215,
+      "cells": 28
+     },
+     "0.0125": {
+      "T": 269,
+      "cells": 13
+     },
+     "0.015": {
+      "T": 323,
+      "cells": 6
+     }
+    }
+   }
+  }
+ },
+ "mosaic_windows": {
+  "w00-04": {
+   "N": 3527,
+   "grid_points": 198,
+   "centres": 2580,
+   "max_square": 625,
+   "max_square_share": 0.17720442302239864,
+   "by_tau": {
+    "0.05": {
+     "T": 176,
+     "centres": 301,
+     "areas": 2
+    },
+    "0.075": {
+     "T": 264,
+     "centres": 200,
+     "areas": 2
+    },
+    "0.1": {
+     "T": 352,
+     "centres": 126,
+     "areas": 2
+    },
+    "0.125": {
+     "T": 440,
+     "centres": 55,
+     "areas": 2
+    },
+    "0.15": {
+     "T": 529,
+     "centres": 21,
+     "areas": 3
+    }
+   }
+  },
+  "w04-08": {
+   "N": 3866,
+   "grid_points": 215,
+   "centres": 2580,
+   "max_square": 637,
+   "max_square_share": 0.16476978789446456,
+   "by_tau": {
+    "0.05": {
+     "T": 193,
+     "centres": 321,
+     "areas": 4
+    },
+    "0.075": {
+     "T": 289,
+     "centres": 164,
+     "areas": 3
+    },
+    "0.1": {
+     "T": 386,
+     "centres": 88,
+     "areas": 2
+    },
+    "0.125": {
+     "T": 483,
+     "centres": 36,
+     "areas": 2
+    },
+    "0.15": {
+     "T": 579,
+     "centres": 6,
+     "areas": 1
+    }
+   }
+  },
+  "w08-12": {
+   "N": 8289,
+   "grid_points": 230,
+   "centres": 2580,
+   "max_square": 1313,
+   "max_square_share": 0.15840270237664375,
+   "by_tau": {
+    "0.05": {
+     "T": 414,
+     "centres": 345,
+     "areas": 4
+    },
+    "0.075": {
+     "T": 621,
+     "centres": 182,
+     "areas": 3
+    },
+    "0.1": {
+     "T": 828,
+     "centres": 90,
+     "areas": 2
+    },
+    "0.125": {
+     "T": 1036,
+     "centres": 27,
+     "areas": 4
+    },
+    "0.15": {
+     "T": 1243,
+     "centres": 4,
+     "areas": 1
+    }
+   }
+  },
+  "w12-16": {
+   "N": 9215,
+   "grid_points": 229,
+   "centres": 2580,
+   "max_square": 1460,
+   "max_square_share": 0.1584373304395008,
+   "by_tau": {
+    "0.05": {
+     "T": 460,
+     "centres": 343,
+     "areas": 4
+    },
+    "0.075": {
+     "T": 691,
+     "centres": 179,
+     "areas": 2
+    },
+    "0.1": {
+     "T": 921,
+     "centres": 98,
+     "areas": 2
+    },
+    "0.125": {
+     "T": 1151,
+     "centres": 38,
+     "areas": 4
+    },
+    "0.15": {
+     "T": 1382,
+     "centres": 4,
+     "areas": 2
+    }
+   }
+  },
+  "w16-20": {
+   "N": 7510,
+   "grid_points": 224,
+   "centres": 2580,
+   "max_square": 1148,
+   "max_square_share": 0.15286284953395474,
+   "by_tau": {
+    "0.05": {
+     "T": 375,
+     "centres": 342,
+     "areas": 4
+    },
+    "0.075": {
+     "T": 563,
+     "centres": 186,
+     "areas": 2
+    },
+    "0.1": {
+     "T": 751,
+     "centres": 91,
+     "areas": 3
+    },
+    "0.125": {
+     "T": 938,
+     "centres": 33,
+     "areas": 3
+    },
+    "0.15": {
+     "T": 1126,
+     "centres": 4,
+     "areas": 1
+    }
+   }
+  },
+  "w20-24": {
+   "N": 8256,
+   "grid_points": 222,
+   "centres": 2580,
+   "max_square": 1503,
+   "max_square_share": 0.18204941860465115,
+   "by_tau": {
+    "0.05": {
+     "T": 412,
+     "centres": 318,
+     "areas": 3
+    },
+    "0.075": {
+     "T": 619,
+     "centres": 187,
+     "areas": 3
+    },
+    "0.1": {
+     "T": 825,
+     "centres": 116,
+     "areas": 2
+    },
+    "0.125": {
+     "T": 1032,
+     "centres": 60,
+     "areas": 3
+    },
+    "0.15": {
+     "T": 1238,
+     "centres": 27,
+     "areas": 2
+    }
+   }
+  }
+ },
+ "mosaic_3of3_day": {
+  "N": 21581,
+  "grid_points": 230,
+  "centres": 2580,
+  "max_square": 3516,
+  "max_square_share": 0.16292108799406885,
+  "by_tau": {
+   "0.02": {
+    "T": 431,
+    "centres": 781,
+    "areas": 5
+   },
+   "0.05": {
+    "T": 1079,
+    "centres": 338,
+    "areas": 3
+   },
+   "0.075": {
+    "T": 1618,
+    "centres": 172,
+    "areas": 2
+   },
+   "0.1": {
+    "T": 2158,
+    "centres": 96,
+    "areas": 3
+   },
+   "0.15": {
+    "T": 3237,
+    "centres": 6,
+    "areas": 1
+   }
+  }
+ },
+ "recommendation": {
+  "mastic_tau": 0.01,
+  "mosaic_window_tau": 0.1,
+  "mosaic_3of3_day_tau_candidates": [
+   0.02,
+   0.05,
+   0.075,
+   0.1,
+   0.15
+  ],
+  "rule": "Mastic: 10-30 heavy cells for every encoding on app and 3of3; Mosaic: 1-5 connected areas (every window, or the whole day)"
+ }
+}

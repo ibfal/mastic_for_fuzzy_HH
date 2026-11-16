@@ -36,3 +36,5 @@ viz/dist/
 # DuckDB/Parquet cache built from them are too large for git; their hashes are in raw_manifest.json.
 apps/parking/raw/
 !apps/parking/raw_manifest.json
+# Parking data manifests and ground truth are data, not config.
+!apps/parking/data/**/*.json

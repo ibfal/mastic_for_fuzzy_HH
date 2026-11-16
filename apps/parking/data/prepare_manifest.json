@@ -1,0 +1,103 @@
+{
+ "description": "P2 preparation outputs (apps/parking/scripts/prepare.py)",
+ "day": "2019-10-11",
+ "join": "2c segment, exact or partial with a single candidate",
+ "cleaning": "2 min <= duration <= 24 h",
+ "stitching": "contiguous vehicle-present rows of a StreetMarker, gap <= 1 s",
+ "fault_flag": "bay-day (StreetMarker x arrival date) with > 80 stays, or >= 10 stays of which > 50% under 2 min",
+ "designs": {
+  "snapshot": "one report per hour h if arrival <= 2019-10-11 h:30 < departure; at most one per (bay, hour), the stay that arrived first (D1)",
+  "overlap": "one report per hour of the day the stay overlaps",
+  "arrivals": "one report per stay arriving on the day, hour = arrival hour"
+ },
+ "columns": [
+  "start_location_lat",
+  "start_location_long",
+  "hour",
+  "stay_id",
+  "street_marker",
+  "segment",
+  "join_method",
+  "fault_flag",
+  "arrival",
+  "departure"
+ ],
+ "steps": {
+  "sensor rows": 42672743,
+  "vehicle-present rows": 22591812,
+  "stays": 17695077,
+  "stays arriving in 2019": 17695077,
+  "clean stays": 12601568,
+  "clean stays joined (2c)": 11188093,
+  "clean joined stays arriving on the day": 38400,
+  "clean joined stays overlapping the day": 39491,
+  "fault-flagged clean joined stays overlapping the day": 4255,
+  "design B snapshot reports before deduplication (day)": 40714,
+  "second reports of a bay in the same hour removed (D1)": 51,
+  "design B snapshot reports (day)": 40663,
+  "design B overlap reports (day)": 79355,
+  "design A reports (day)": 38400
+ },
+ "benchmark": {
+  "source": "apps/parking/data/parking_day_sample.csv",
+  "n": 21581,
+  "seed": 20261107,
+  "sample": "random.Random(seed).sample(range(N_snapshot), n), kept in file order",
+  "subsets": "bench/scripts/make_subsets.py (unchanged)",
+  "manifest": "apps/parking/data/manifest.json"
+ },
+ "files": {
+  "apps/parking/data/parking_day_snapshot.csv": {
+   "rows": 40663,
+   "sha256": "5a892e5afeb265052d626add9d6eb367212485532ac4598c23ebab6ed6c066e2"
+  },
+  "apps/parking/data/parking_day_overlap.csv": {
+   "rows": 79355,
+   "sha256": "840e09d45c4322f5a0fa40079f7229a03bf83dcc9de4341b24cff36bc6a79fe4"
+  },
+  "apps/parking/data/parking_day_arrivals.csv": {
+   "rows": 38400,
+   "sha256": "ba140c191a75724a01e28dde700f0bf4764e3782fafd606e423d4dab48aa17dc"
+  },
+  "apps/parking/data/parking_day_snapshot_w00-04.csv": {
+   "rows": 3527,
+   "sha256": "aace5000a6d1e062e04b90b44a66b9f22dd493dc9fff65cfe591339e44e077ed"
+  },
+  "apps/parking/data/parking_day_snapshot_w04-08.csv": {
+   "rows": 3866,
+   "sha256": "f018b451478d3722bef70c21a04e08ef5dc180b996db1f370dc29b27ea214d75"
+  },
+  "apps/parking/data/parking_day_snapshot_w08-12.csv": {
+   "rows": 8289,
+   "sha256": "4b67b5f768e8ecd6c0ca0eccf4fc8714255caf23754476dd17b444aac4f894cc"
+  },
+  "apps/parking/data/parking_day_snapshot_w12-16.csv": {
+   "rows": 9215,
+   "sha256": "ba84e4123bfe8e8cfa76674bbdc04e233c05e94985d7ef0c49d2b1642155a128"
+  },
+  "apps/parking/data/parking_day_snapshot_w16-20.csv": {
+   "rows": 7510,
+   "sha256": "d407c6bfbe775a876d106ec503667ea9347feac241fb02d85ea5342c74249aba"
+  },
+  "apps/parking/data/parking_day_snapshot_w20-24.csv": {
+   "rows": 8256,
+   "sha256": "4852106be6a96489d1dbeb971f7f8bd206ee695ce3809af8a04ba79192abaf5d"
+  },
+  "apps/parking/data/parking_day_sample.csv": {
+   "rows": 21581,
+   "sha256": "ba33c127a3f603423316fdd70515fb3f023bc2fd5a6f31202d131b7c921d5706"
+  },
+  "apps/parking/data/parking_day_1of3.csv": {
+   "rows": 7194,
+   "sha256": "2166fac70b5f1f224b183bd79d4f57a449dfc8dcfdc6a0001cdf092fbcb69fbe"
+  },
+  "apps/parking/data/parking_day_2of3.csv": {
+   "rows": 14387,
+   "sha256": "0af3844cec7a6cd7f13925839b1e9e11af203dcd8cfc905257f351b5a29cc869"
+  },
+  "apps/parking/data/parking_day_3of3.csv": {
+   "rows": 21581,
+   "sha256": "87e3b38f2b4aefc7f68e0151d52389261b51efd520ec1dcda9ca8433767b3fb2"
+  }
+ }
+}

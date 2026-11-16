@@ -1,0 +1,53 @@
+{
+  "dataset": "parking_day",
+  "seed": 20261107,
+  "method": "drop rows without finite coordinates; random.Random(seed).shuffle over the remaining rows in file order; first round(N/3), round(2N/3) and N rows",
+  "python": "3.14.0",
+  "line_endings": "LF",
+  "source": {
+    "path": "apps/parking/data/parking_day_sample.csv",
+    "sha256": "ba33c127a3f603423316fdd70515fb3f023bc2fd5a6f31202d131b7c921d5706",
+    "sha256_lf": "ba33c127a3f603423316fdd70515fb3f023bc2fd5a6f31202d131b7c921d5706",
+    "rows": 21581,
+    "rows_kept": 21581,
+    "rows_dropped": 0
+  },
+  "files": [
+    {
+      "subset": "1of3",
+      "path": "apps/parking/data/parking_day_1of3.csv",
+      "rows": 7194,
+      "sha256": "2166fac70b5f1f224b183bd79d4f57a449dfc8dcfdc6a0001cdf092fbcb69fbe",
+      "seed": 20261107,
+      "source": {
+        "path": "apps/parking/data/parking_day_sample.csv",
+        "sha256": "ba33c127a3f603423316fdd70515fb3f023bc2fd5a6f31202d131b7c921d5706",
+        "sha256_lf": "ba33c127a3f603423316fdd70515fb3f023bc2fd5a6f31202d131b7c921d5706"
+      }
+    },
+    {
+      "subset": "2of3",
+      "path": "apps/parking/data/parking_day_2of3.csv",
+      "rows": 14387,
+      "sha256": "0af3844cec7a6cd7f13925839b1e9e11af203dcd8cfc905257f351b5a29cc869",
+      "seed": 20261107,
+      "source": {
+        "path": "apps/parking/data/parking_day_sample.csv",
+        "sha256": "ba33c127a3f603423316fdd70515fb3f023bc2fd5a6f31202d131b7c921d5706",
+        "sha256_lf": "ba33c127a3f603423316fdd70515fb3f023bc2fd5a6f31202d131b7c921d5706"
+      }
+    },
+    {
+      "subset": "3of3",
+      "path": "apps/parking/data/parking_day_3of3.csv",
+      "rows": 21581,
+      "sha256": "87e3b38f2b4aefc7f68e0151d52389261b51efd520ec1dcda9ca8433767b3fb2",
+      "seed": 20261107,
+      "source": {
+        "path": "apps/parking/data/parking_day_sample.csv",
+        "sha256": "ba33c127a3f603423316fdd70515fb3f023bc2fd5a6f31202d131b7c921d5706",
+        "sha256_lf": "ba33c127a3f603423316fdd70515fb3f023bc2fd5a6f31202d131b7c921d5706"
+      }
+    }
+  ]
+}

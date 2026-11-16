@@ -42,3 +42,5 @@ apps/parking/raw/
 # configs and logs are scratch.
 !apps/parking/results/*.json
 apps/parking/.run/
+# Frontend screenshots (test_frontend.py, P6) document the report, not scratch figures.
+!apps/parking/reports/screenshots/*.png

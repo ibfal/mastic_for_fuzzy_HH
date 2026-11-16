@@ -109,8 +109,8 @@ Chosen from the data (P1, re-checked on the snapshot data in P2), not copied fro
    - each area's occupancy profile over 24 hours;
    - estimated free spaces per hour (capacity − occupancy);
    - compared with the true occupancy from the sensor data. Report what share of all car-hours lies in reported cells, and the free-space error for the reported areas.
-2. **Cost of weights (Mastic):** 1 vs 6 vs 24 buckets. Measure client report size, client time and online time. This is the cost of richer statistics.
-3. **Mastic vs Mosaic** on the 21,581-report set: time, rounds, bytes and leakage, as in the ride benchmark. Also compare ride data with parking data at the same N.
+2. ~~**Cost of weights (Mastic):** 1 vs 6 vs 24 buckets. Measure client report size, client time and online time. This is the cost of richer statistics.~~ **Dropped:** no benchmarking in this application (P3 scope).
+3. ~~**Mastic vs Mosaic** on the 21,581-report set: time, rounds, bytes and leakage, as in the ride benchmark. Also compare ride data with parking data at the same N.~~ **Dropped:** no benchmarking in this application (P3 scope).
 4. **Exact vs fuzzy:** Mosaic's areas per time window versus Mastic's heavy cells for the same window.
 5. **Optional:** GPS-noise version; time as a third coordinate in Mosaic.
 ## 8. Implementation steps
@@ -122,7 +122,7 @@ Chosen from the data (P1, re-checked on the snapshot data in P2), not copied fro
 | P3 | Mastic | `Weight::HourOfDay` in `dataset.rs` (24 buckets; also 6 and 1), with tests; bucket counts in the driver's `--export`; `scripts/run_app.py` runs the app set per encoding and checks it against the ground truth. **Scope (P3): the parking app is implemented, not benchmarked** |
 | P4 | Mosaic | Melbourne encodings (check whether Mosaic's encoders accept a custom origin, box and prefix); time-window runs; reuse the harness |
 | P5 | both | Runs (Mastic: minutes; Mosaic: one night), evaluation, comparison |
-| P6 | Mastic | Frontend: map with hour slider, occupancy %, estimated free spaces |
+| P6 | Mastic | Frontend: map with hour slider, occupancy %, estimated free spaces. `apps/parking/frontend/index.html` + `data.js` (built by `scripts/build_frontend.py` from the saved results; the page never starts runs) |
  
 The rules from the benchmark spec (C0) apply to every prompt:
 - no git commits, pushes or branch switches;

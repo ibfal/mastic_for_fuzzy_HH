@@ -1,9 +1,9 @@
 {
  "truth": "apps/parking/data/ground_truth/mastic_app.json",
  "app_set": "apps/parking/data/parking_day_snapshot.csv",
- "commit": "91e7cd6cd679e40e166c48446c4d817e11f1917a",
- "dirty": true,
- "updated": "2026-11-16T15:54:35+01:00",
+ "commit": "9fbac7fae90e2b1afb647972eba3773060b8778b",
+ "dirty": false,
+ "updated": "2026-11-16T16:07:34+01:00",
  "encodings": {
   "morton": {
    "encoding": "morton",
@@ -17,20 +17,20 @@
    "max_centre_diff_deg": 2.842170943040401e-14,
    "printed_cells": 21,
    "cells_with_zero_last_hour": 0,
-   "export_bytes": 113022,
+   "export_bytes": 113003,
    "problems": [],
    "ok": true,
    "run": {
-    "wall_s": 35.31,
+    "wall_s": 31.7,
     "ports": [
      18100,
      18101
     ],
     "threads": 5,
     "peak_mb": {
-     "server_0": 4721,
-     "server_1": 4720,
-     "driver": 726
+     "server_0": 4738,
+     "server_1": 4730,
+     "driver": 725
     },
     "driver_log": "apps/parking/.run/logs/morton.driver.log"
    },
@@ -48,20 +48,20 @@
    "max_centre_diff_deg": 0.0,
    "printed_cells": 17,
    "cells_with_zero_last_hour": 0,
-   "export_bytes": 145355,
+   "export_bytes": 145354,
    "problems": [],
    "ok": true,
    "run": {
-    "wall_s": 39.67,
+    "wall_s": 33.37,
     "ports": [
      18100,
      18101
     ],
     "threads": 5,
     "peak_mb": {
-     "server_0": 4668,
-     "server_1": 4099,
-     "driver": 1217
+     "server_0": 4286,
+     "server_1": 4463,
+     "driver": 1216
     },
     "driver_log": "apps/parking/.run/logs/geohash.driver.log"
    },
@@ -79,20 +79,20 @@
    "max_centre_diff_deg": 2.842170943040401e-14,
    "printed_cells": 28,
    "cells_with_zero_last_hour": 0,
-   "export_bytes": 287978,
+   "export_bytes": 287971,
    "problems": [],
    "ok": true,
    "run": {
-    "wall_s": 38.02,
+    "wall_s": 29.64,
     "ports": [
      18100,
      18101
     ],
     "threads": 5,
     "peak_mb": {
-     "server_0": 4516,
-     "server_1": 4518,
-     "driver": 875
+     "server_0": 4709,
+     "server_1": 4389,
+     "driver": 873
     },
     "driver_log": "apps/parking/.run/logs/h3.driver.log"
    },

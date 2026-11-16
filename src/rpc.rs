@@ -104,10 +104,10 @@ pub trait Collector {
 
     /// Crawl the tree and return the evaluations, the Merkle tree root, and the indices of the
     /// Merkle tree.
-    async fn tree_crawl(req: TreeCrawlRequest) -> (Vec<Vec<Field128>>, Vec<Vec<u8>>, Vec<usize>);
+    async fn tree_crawl(req: TreeCrawlRequest) -> (Vec<Field128>, Vec<Vec<u8>>, Vec<usize>);
 
     /// Crawl the last level of the tree and return the evaluations for different prefixes.
-    async fn tree_crawl_last(req: TreeCrawlLastRequest) -> Vec<Vec<Field128>>;
+    async fn tree_crawl_last(req: TreeCrawlLastRequest) -> Vec<Field128>;
 
     /// Return the final VIDPF proofs.
     async fn get_proofs(req: GetProofsRequest) -> Vec<[u8; HASH_SIZE]>;

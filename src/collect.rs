@@ -341,7 +341,7 @@ impl KeyCollection {
         mut split_by: usize,
         malicious: &Vec<usize>,
         is_last: bool,
-    ) -> (Vec<Vec<Field128>>, Vec<Vec<u8>>, Vec<usize>) {
+    ) -> (Vec<Field128>, Vec<Vec<u8>>, Vec<usize>) {
         if !malicious.is_empty() {
             println!("Malicious is not empty!!");
 
@@ -369,11 +369,10 @@ impl KeyCollection {
             })
             .collect::<Vec<TreeNode<Field128>>>();
 
-        // These are summed evaluations y for different prefixes.
-        let cnt_values = next_frontier
-            .par_iter()
-            .map(|node| node.value.clone())
-            .collect::<Vec<Vec<Field128>>>();
+        // This server's share of each candidate's count. Only the counter leaves the server
+        // during the crawl: pruning needs nothing else, and beta (the histograms) is revealed
+        // only for the final heavy hitters, by `final_shares`.
+        let cnt_values = self.counter_shares(&next_frontier);
 
         // For all prefixes, compute the checks for each client.
         let all_y_checks = self
@@ -516,7 +515,9 @@ impl KeyCollection {
         (cnt_values, mtree_roots, mtree_indices)
     }
 
-    pub fn tree_crawl_last(&mut self) -> Vec<Vec<Field128>> {
+    /// Like [`Self::tree_crawl`] for the last level: this server's share of each candidate's
+    /// count, and not of its histogram.
+    pub fn tree_crawl_last(&mut self) -> Vec<Field128> {
         let next_frontier = self
             .frontier
             .par_iter()
@@ -545,11 +546,13 @@ impl KeyCollection {
             .collect::<Vec<_>>();
         self.frontier = next_frontier;
 
-        // These are summed evaluations y for different prefixes.
-        self.frontier
-            .par_iter()
-            .map(|node| node.value.clone())
-            .collect::<Vec<Vec<Field128>>>()
+        self.counter_shares(&self.frontier)
+    }
+
+    /// The counter, the last element of each node's summed `(beta, 1)`, of each node.
+    fn counter_shares(&self, nodes: &[TreeNode<Field128>]) -> Vec<Field128> {
+        let input_len = self.mastic.input_len();
+        nodes.par_iter().map(|node| node.value[input_len]).collect()
     }
 
     pub fn get_proofs(&self, start: usize, end: usize) -> Vec<[u8; HASH_SIZE]> {
@@ -586,23 +589,27 @@ impl KeyCollection {
         }
     }
 
-    /// Keep only heavy-hitter values. Note that we perform the pruning based on the last element
-    /// (i.e., the counter) as the previous elements are parts of \beta.
+    /// Which candidates are heavy: those whose count, reconstructed from the two servers'
+    /// counter shares, reaches `threshold`.
     pub fn keep_values(
-        input_len: usize,
         threshold: u64,
-        cnt_values_0: &[Vec<Field128>],
-        cnt_values_1: &[Vec<Field128>],
+        cnt_values_0: &[Field128],
+        cnt_values_1: &[Field128],
     ) -> Vec<bool> {
+        Self::counts(cnt_values_0, cnt_values_1)
+            .into_iter()
+            .map(|count| count >= threshold)
+            .collect()
+    }
+
+    /// Each candidate's count, from the two servers' counter shares.
+    pub fn counts(cnt_values_0: &[Field128], cnt_values_1: &[Field128]) -> Vec<u64> {
+        assert_eq!(cnt_values_0.len(), cnt_values_1.len());
         cnt_values_0
             .par_iter()
             .zip(cnt_values_1.par_iter())
-            .map(|(value_0, value_1)| {
-                let v = value_0[input_len] + value_1[input_len];
-
-                u128::from(v) as u64 >= threshold
-            })
-            .collect::<Vec<_>>()
+            .map(|(&v0, &v1)| u128::from(v0 + v1) as u64)
+            .collect()
     }
 
     pub fn final_shares(&self) -> Vec<Result> {

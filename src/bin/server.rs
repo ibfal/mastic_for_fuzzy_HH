@@ -81,7 +81,7 @@ impl Collector for CollectorServer {
         self,
         _: context::Context,
         req: TreeCrawlRequest,
-    ) -> (Vec<Vec<Field128>>, Vec<Vec<u8>>, Vec<usize>) {
+    ) -> (Vec<Field128>, Vec<Vec<u8>>, Vec<usize>) {
         let start = Instant::now();
         let split_by = req.split_by;
         let malicious = req.malicious;
@@ -115,7 +115,7 @@ impl Collector for CollectorServer {
         self,
         _: context::Context,
         _req: TreeCrawlLastRequest,
-    ) -> Vec<Vec<Field128>> {
+    ) -> Vec<Field128> {
         let start = Instant::now();
         let mut coll = self.arc.lock().unwrap();
 

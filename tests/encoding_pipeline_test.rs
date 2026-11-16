@@ -89,11 +89,11 @@ fn crawl_histograms(
         let [counts_0, counts_1] = aggregators
             .each_mut()
             .map(|a| a.tree_crawl(1, &Vec::new(), false).0);
-        let keep = KeyCollection::keep_values(input_len, threshold, &counts_0, &counts_1);
+        let keep = KeyCollection::keep_values(threshold, &counts_0, &counts_1);
         aggregators.iter_mut().for_each(|a| a.tree_prune(&keep));
     }
     let [counts_0, counts_1] = aggregators.each_mut().map(|a| a.tree_crawl_last());
-    let keep = KeyCollection::keep_values(input_len, threshold, &counts_0, &counts_1);
+    let keep = KeyCollection::keep_values(threshold, &counts_0, &counts_1);
     aggregators.iter_mut().for_each(|a| a.tree_prune(&keep));
 
     let [shares_0, shares_1] = aggregators.each_ref().map(|a| a.final_shares());

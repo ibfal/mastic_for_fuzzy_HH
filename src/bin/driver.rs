@@ -50,9 +50,12 @@ fn long_context() -> context::Context {
 #[derive(Serialize)]
 struct ExportCandidate {
     bits: String,
-    /// Number of clients under this prefix (the counter, the last element of `value`).
+    /// Number of clients under this prefix: all the collector learns about it during the crawl.
     count: u64,
-    value: Vec<u64>,
+    /// The prefix's full value, its histograms of `beta` followed by the count. Only the final
+    /// heavy hitters have one: the servers reveal `beta` for nothing else.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value: Option<Vec<u64>>,
     /// Whether the count reached the threshold, so the crawl expands this prefix.
     heavy: bool,
     /// Outline of the prefix as polygons of `[lat, lon]`; empty without a dataset.
@@ -119,30 +122,20 @@ impl CrawlExport {
             .collect()
     }
 
-    fn record(
-        &mut self,
-        input_len: usize,
-        cnt_values_0: &[Vec<Field128>],
-        cnt_values_1: &[Vec<Field128>],
-        keep: &[bool],
-    ) {
+    fn record(&mut self, cnt_values_0: &[Field128], cnt_values_1: &[Field128], keep: &[bool]) {
         let paths: Vec<Vec<bool>> = self
             .frontier
             .iter()
             .flat_map(|p| [false, true].map(|b| [&p[..], &[b]].concat()))
             .collect();
-        assert_eq!(paths.len(), cnt_values_0.len());
+        let counts = collect::KeyCollection::counts(cnt_values_0, cnt_values_1);
+        assert_eq!(paths.len(), counts.len());
 
         let candidates = paths
             .iter()
-            .zip(cnt_values_0.iter().zip(cnt_values_1))
+            .zip(counts)
             .zip(keep)
-            .map(|((path, (v0, v1)), &heavy)| {
-                let value: Vec<u64> = v0
-                    .iter()
-                    .zip(v1)
-                    .map(|(&a, &b)| u128::from(a + b) as u64)
-                    .collect();
+            .map(|((path, count), &heavy)| {
                 let region = match &self.encoder {
                     Some(e) if self.regions => e
                         .region(path)
@@ -153,8 +146,8 @@ impl CrawlExport {
                 };
                 ExportCandidate {
                     bits: bits_to_bitstring(path),
-                    count: value[input_len],
-                    value,
+                    count,
+                    value: None,
                     heavy,
                     region,
                 }
@@ -171,6 +164,22 @@ impl CrawlExport {
             .zip(keep)
             .filter_map(|(p, &k)| k.then_some(p))
             .collect();
+    }
+
+    /// Attach the final heavy hitters' full values, from `final_shares`, to the last level.
+    fn attach_final(&mut self, final_values: &[collect::Result]) {
+        let Some(last) = self.levels.last_mut() else {
+            return;
+        };
+        for result in final_values {
+            let bits = bits_to_bitstring(&result.path);
+            let candidate = last
+                .candidates
+                .iter_mut()
+                .find(|c| c.bits == bits && c.heavy)
+                .expect("every final heavy hitter is a heavy candidate of the last level");
+            candidate.value = Some(result.value.iter().map(|&v| u128::from(v) as u64).collect());
+        }
     }
 }
 
@@ -1054,12 +1063,7 @@ async fn run_level(
         }
 
         assert_eq!(cnt_values_0.len(), cnt_values_1.len());
-        keep = collect::KeyCollection::keep_values(
-            mastic.input_len(),
-            threshold,
-            &cnt_values_0,
-            &cnt_values_1,
-        );
+        keep = collect::KeyCollection::keep_values(threshold, &cnt_values_0, &cnt_values_1);
         cnt_values = (cnt_values_0, cnt_values_1);
         if mt_root_0.is_empty() {
             break;
@@ -1095,7 +1099,7 @@ async fn run_level(
 
     if let Some(export) = export {
         let t = Instant::now();
-        export.record(mastic.input_len(), &cnt_values.0, &cnt_values.1, &keep);
+        export.record(&cnt_values.0, &cnt_values.1, &keep);
         if let Some(b) = bench {
             b.overhead += t.elapsed();
         }
@@ -1157,15 +1161,10 @@ async fn run_level_last(
         b.crawls_per_level.push(1);
     }
     assert_eq!(cnt_values_0.len(), cnt_values_1.len());
-    let keep = collect::KeyCollection::keep_values(
-        mastic.input_len(),
-        threshold,
-        &cnt_values_0,
-        &cnt_values_1,
-    );
+    let keep = collect::KeyCollection::keep_values(threshold, &cnt_values_0, &cnt_values_1);
     if let Some(export) = export {
         let t = Instant::now();
-        export.record(mastic.input_len(), &cnt_values_0, &cnt_values_1, &keep);
+        export.record(&cnt_values_0, &cnt_values_1, &keep);
         if let Some(b) = bench {
             b.overhead += t.elapsed();
         }
@@ -1247,6 +1246,9 @@ async fn run_level_last(
     );
     let final_values =
         collect::KeyCollection::final_values(mastic.input_len(), &shares_0, &shares_1);
+    if let Some(export) = export {
+        export.attach_final(&final_values);
+    }
     if let (Some(b), Some(sw)) = (bench.as_mut(), step) {
         // The collector now holds the output: the online phase ends here (A3).
         b.step("final", sw);

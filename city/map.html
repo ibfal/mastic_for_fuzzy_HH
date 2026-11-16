@@ -17,6 +17,7 @@
     --neutral: #55554f;
     --warn-bg: #fff6dc;
     --warn-text: #6a5100;
+    --hood: #b3261e;
     --c0: #1a4fa8;  /* Uber */
     --c1: #c4420f;  /* Lyft */
     --c2: #0d7a4f;  /* Waymo */
@@ -26,7 +27,7 @@
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #141413; --panel: #1e1e1c; --text: #ececE8; --muted: #a1a19b; --border: #34342f;
-      --track: #2b2b28; --neutral: #b5b5ae; --warn-bg: #3a3218; --warn-text: #f1d98a;
+      --track: #2b2b28; --neutral: #b5b5ae; --warn-bg: #3a3218; --warn-text: #f1d98a; --hood: #ff8a80;
       --c0: #5b9cf0; --c1: #f07a45; --c2: #2fbf85; --c3: #a77bf3;
       --shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
     }
@@ -34,7 +35,7 @@
   }
   :root[data-theme="dark"] {
     --bg: #141413; --panel: #1e1e1c; --text: #ececE8; --muted: #a1a19b; --border: #34342f;
-    --track: #2b2b28; --neutral: #b5b5ae; --warn-bg: #3a3218; --warn-text: #f1d98a;
+    --track: #2b2b28; --neutral: #b5b5ae; --warn-bg: #3a3218; --warn-text: #f1d98a; --hood: #ff8a80;
     --c0: #5b9cf0; --c1: #f07a45; --c2: #2fbf85; --c3: #a77bf3;
     --shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
   }
@@ -99,6 +100,18 @@
   .filter-note { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
   .filter-note b { color: var(--text); font-variant-numeric: tabular-nums; }
   .filter-note .warn { display: block; margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-text); }
+  .hoods { list-style: none; margin: 0; padding: 0; }
+  .hoods li { margin: 0 0 2px; }
+  .hoods button {
+    width: 100%; display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 4px 8px;
+    font: inherit; color: inherit; background: none; border: 1px solid transparent; border-radius: 6px;
+    padding: 5px 6px; cursor: pointer; text-align: left;
+  }
+  .hoods button:hover { background: var(--bg); }
+  .hoods button[aria-pressed="true"] { border-color: var(--hood); }
+  .hoods .rank { font-weight: 600; color: var(--hood); font-variant-numeric: tabular-nums; }
+  .hoods .bar { grid-column: 2 / 4; height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; }
+  .hoods .bar i { display: block; height: 100%; background: var(--hood); }
   .link { font: inherit; font-size: 12.5px; color: var(--text); background: none; border: 0; padding: 0;
     text-decoration: underline; cursor: pointer; }
 
@@ -160,6 +173,7 @@
   <div class="tabs" role="tablist" aria-label="Location shown">
     <button role="tab" id="tab-pickup" data-tab="pickup" aria-selected="true">Pickups</button>
     <button role="tab" id="tab-dropoff" data-tab="dropoff" aria-selected="false">Drop-offs</button>
+    <button role="tab" id="tab-plain" data-tab="plain" aria-selected="false">Neighborhoods</button>
   </div>
   <h1 id="title">Austin ride-share pickups</h1>
   <p class="sub" id="subtitle"></p>
@@ -170,6 +184,13 @@
   <div class="stats" id="stats"></div>
   <p class="hint" id="dropped" hidden></p>
 
+  <div id="plain-only" hidden>
+    <span class="field" id="hoods-title">Neighborhoods</span>
+    <ol class="hoods" id="hoods"></ol>
+    <p class="hint">Click a neighborhood to zoom to it and list its cells.</p>
+  </div>
+
+  <div id="weighted-only">
   <span class="field" id="legend-title">Leading company per cell</span>
   <ul class="legend" id="legend"></ul>
   <p class="hint" id="legend-hint"></p>
@@ -182,12 +203,14 @@
     </div>
     <p class="filter-note" id="filter-note" aria-live="polite"></p>
   </div>
+  </div>
 
   <details>
     <summary>What the city learns</summary>
     <p>Each company turns each ride into a Mastic report. On the Pickups tab α is the pickup cell and β has five one-hot blocks: company, pickup hour, car category, surge and drop-off zone. On the Drop-offs tab α is the drop-off cell, the hour is the drop-off hour and the last block is the pickup zone instead. The two aggregators find the cells with at least the threshold number of rides without seeing any single report.</p>
     <p>For each heavy cell the city learns the totals of each block: rides per company, per hour, and so on. The blocks are separate, so it does not learn, for example, Waymo's rides per hour. It learns nothing about individual rides or riders, or about cells below the threshold. The colours come only from those totals.</p>
     <p>Each tab is its own query over the same rides, so with both the city learns the heavy pickup cells and the heavy drop-off cells, each with its block totals. It still does not learn which pickup goes with which drop-off, beyond the three named zones.</p>
+    <p>The Neighborhoods tab is a third query with no weights: β is just the count, so the city learns only how many pickups each heavy cell has. The heavy cells are then grouped into neighborhoods afterwards, from those counts alone, which reveals nothing more.</p>
     <p>Companies are assigned synthetically (city/make_company_rides.py); the pickups are real RideAustin data from the busiest day (March 17, 2017).</p>
   </details>
 </aside>
@@ -203,6 +226,11 @@ const TABS = {
   pickup: {
     title: "Austin ride-share pickups",
     sub: "Uber, Lyft, Waymo and RideAustin report every ride to the city through Mastic. Cells are where rides start; the map shows only what the city learns.",
+    noun: "pickups",
+  },
+  plain: {
+    title: "Pickup neighborhoods",
+    sub: "Plain counts, no weights. Heavy pickup cells that touch, or are only one cell apart, form one neighborhood; a lone cell is not one. Uses only the cells the city learned.",
     noun: "pickups",
   },
   dropoff: {
@@ -225,7 +253,8 @@ const LABEL_NAMES = {
 // filter: the bucket cells must have at least `min` rides in ("" = no filter, "c:<i>" = company i,
 // "b:<k>:<i>" = bucket i of block k, "h:<k>:<g>" = hours 4g..4g+3 of the hour block k); min
 // defaults to the run's threshold.
-const state = { tab: "pickup", run: null, focus: null, selected: null, filter: { key: "", min: null } };
+// hood: index of the selected neighborhood on the Neighborhoods tab, or null.
+const state = { tab: "pickup", hood: null, run: null, focus: null, selected: null, filter: { key: "", min: null } };
 
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const color = i => css(`--c${i}`);
@@ -254,7 +283,7 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
 }).addTo(map);
 const layer = L.layerGroup().addTo(map);
-map.on("click", () => select(null));
+map.on("click", () => (isPlain() ? selectHood(null) : select(null)));
 
 const encodingSelect = document.getElementById("encoding");
 encodingSelect.addEventListener("change", () => { storage("city-map-encoding", encodingSelect.value); show(encodingSelect.value); });
@@ -274,6 +303,9 @@ function setTab(tab) {
   for (const name of Object.keys(RUNS)) encodingSelect.add(new Option(ENCODING_NAMES[name] || name, name));
   encodingSelect.value = keep && RUNS[keep] ? keep : (RUNS.morton ? "morton" : Object.keys(RUNS)[0]);
   state.selected = null;
+  state.hood = null;
+  document.getElementById("plain-only").hidden = !isPlain();
+  document.getElementById("weighted-only").hidden = isPlain();
   show(encodingSelect.value);
 }
 for (const b of document.querySelectorAll(".tabs button")) {
@@ -281,7 +313,9 @@ for (const b of document.querySelectorAll(".tabs button")) {
   b.addEventListener("click", () => { if (b.dataset.tab !== state.tab) setTab(b.dataset.tab); });
 }
 
-document.addEventListener("keydown", e => { if (e.key === "Escape") select(null); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") (isPlain() ? selectHood(null) : select(null)); });
+
+const isPlain = () => state.tab === "plain";
 
 const run = () => RUNS[state.run];
 const leader = cell => cell.counts.reduce((best, c, i, a) => (c > a[best] ? i : best), 0);
@@ -379,6 +413,10 @@ document.getElementById("filter-min").addEventListener("input", e => {
 });
 
 function draw() {
+  if (isPlain()) drawPlain(); else drawWeighted();
+}
+
+function drawWeighted() {
   const r = run();
   layer.clearLayers();
   const focus = state.focus;
@@ -470,6 +508,10 @@ function hours(labels, values, hit, name) {
 }
 
 function details() {
+  if (isPlain()) detailsPlain(); else detailsWeighted();
+}
+
+function detailsWeighted() {
   const el = document.getElementById("details");
   const r = run();
   const cell = visibleCells().find(c => c.bits === state.selected);
@@ -507,14 +549,136 @@ function select(bits) {
 
 function refresh() {
   details();
-  legend();
-  filterNote();
+  if (isPlain()) {
+    hoodList();
+  } else {
+    legend();
+    filterNote();
+  }
   draw();
+}
+
+// ---- Neighborhoods tab: plain counts, heavy cells grouped by distance. ----
+
+function drawPlain() {
+  const r = run();
+  layer.clearLayers();
+  const max = Math.max(1, ...r.cells.map(c => c.total));
+  const hoodColor = css("--hood");
+  const neutral = css("--neutral");
+  // Cells below the threshold that a neighborhood took in (a one-cell gap or a hole): tinted, since
+  // their counts are unknown.
+  r.neighborhoods.forEach((h, k) => {
+    const lit = state.hood === null || state.hood === k;
+    for (const a of h.added) {
+      for (const ring of a.region) {
+        L.polygon(ring, {
+          color: hoodColor, weight: 0.5, opacity: lit ? 0.5 : 0.2, dashArray: "2 3",
+          fillColor: hoodColor, fillOpacity: lit ? 0.16 : 0.05,
+        })
+          .bindTooltip(() => `<div class="tip">Below the threshold<div class="meta">Part of neighborhood #${k + 1} (in a gap or enclosed); its count was not revealed</div></div>`, { direction: "top", sticky: true })
+          .on("click", e => { L.DomEvent.stopPropagation(e); selectHood(k, false); })
+          .addTo(layer);
+      }
+    }
+  });
+  // Heavy cells: those in a neighborhood shaded by pickups, lone cells faint.
+  r.cells.forEach((cell, i) => {
+    const k = r.cellHood[i];
+    const inHood = k !== undefined;
+    const lit = inHood && (state.hood === null || state.hood === k);
+    for (const ring of cell.region) {
+      L.polygon(ring, {
+        color: neutral, weight: inHood ? 1 : 0.5, opacity: lit ? 0.9 : 0.4,
+        fillColor: neutral, fillOpacity: lit ? 0.2 + 0.65 * Math.sqrt(cell.total / max) : 0.12,
+      })
+        .bindTooltip(() => `<div class="tip"><b>${fmt(cell.total)}</b> pickups<div class="meta">${esc(cell.label || cell.bits)} · ${inHood ? `neighborhood #${k + 1}` : "no heavy cell within one cell of it, so not in a neighborhood"}</div></div>`, { direction: "top", sticky: true })
+        .on("click", e => { L.DomEvent.stopPropagation(e); if (inHood) selectHood(k, false); })
+        .addTo(layer);
+    }
+  });
+  // Borders on top: the outer edges of each neighborhood's cells, added cells included.
+  r.neighborhoods.forEach((h, k) => {
+    const selected = k === state.hood;
+    L.polyline(h.outline, {
+      color: hoodColor, weight: selected ? 4 : 2.5, opacity: selected || state.hood === null ? 1 : 0.35,
+      interactive: false,
+    }).addTo(layer);
+  });
+}
+
+function hoodList() {
+  const r = run();
+  const max = Math.max(1, ...r.neighborhoods.map(h => h.total));
+  document.getElementById("hoods-title").textContent =
+    `${fmt(r.neighborhoods.length)} neighborhoods`;
+  const el = document.getElementById("hoods");
+  el.innerHTML = r.neighborhoods.map((h, k) => `
+    <li><button data-k="${k}" aria-pressed="${state.hood === k}">
+      <span class="rank">#${k + 1}</span>
+      <span>${fmt(h.cells.length)} cell${h.cells.length === 1 ? "" : "s"}</span>
+      <span class="num">${fmt(h.total)} pickups</span>
+      <span class="bar"><i style="width:${100 * h.total / max}%"></i></span>
+    </button></li>`).join("");
+  for (const b of el.querySelectorAll("button")) {
+    b.addEventListener("click", () => selectHood(Number(b.dataset.k), true));
+  }
+}
+
+function selectHood(k, zoom) {
+  state.hood = state.hood === k ? null : k;
+  if (zoom && state.hood !== null) {
+    const h = run().neighborhoods[k];
+    const pts = h.outline.flat();
+    map.fitBounds(pts, { padding: [60, 60], maxZoom: 16 });
+  }
+  refresh();
+}
+
+function detailsPlain() {
+  const el = document.getElementById("details");
+  const r = run();
+  const h = state.hood === null ? null : r.neighborhoods[state.hood];
+  if (!h) { el.hidden = true; return; }
+  const all = r.cells.reduce((a, c) => a + c.total, 0) || 1;
+  const shown = h.cells.slice(0, 12);
+  const top = r.cells[h.cells[0]].total;
+  const rows = shown.map(i => {
+    const c = r.cells[i];
+    return `<tr><td class="name">${esc(c.label || c.bits)}</td>
+      <td class="bar"><div class="track"><i style="width:${100 * c.total / top}%;background:var(--neutral)"></i></div></td>
+      <td class="n">${fmt(c.total)}</td><td class="p">${pct(c.total / h.total)}</td></tr>`;
+  }).join("");
+  const more = h.cells.length - shown.length;
+  el.innerHTML = `
+    <div class="details-head">
+      <h2>Neighborhood #${state.hood + 1}: ${fmt(h.total)} pickups</h2>
+      <span class="meta">${fmt(h.cells.length)} heavy cell${h.cells.length === 1 ? "" : "s"}${h.added.length ? ` + ${fmt(h.added.length)} below the threshold` : ""} · ${pct(h.total / all)} of the pickups in heavy cells</span>
+      <button class="close" aria-label="Close details">×</button>
+    </div>
+    <div class="blocks"><div class="block"><h3>Heavy cells, busiest first</h3><table>${rows}</table>
+      ${more > 0 ? `<p class="note">and ${fmt(more)} more cell${more === 1 ? "" : "s"}</p>` : ""}</div></div>
+    <p class="note">A neighborhood is a connected area of heavy cells: cells that share a side or a corner (for H3, a side), chained together; areas only one cell apart are joined, and the cell in the gap and any enclosed cells become part of it. Those cells are below the threshold, so their pickups are unknown and not counted. At least ${r.min_cells} heavy cells. The grouping uses only the revealed counts.</p>`;
+  el.querySelector(".close").addEventListener("click", () => selectHood(null));
+  el.hidden = false;
 }
 
 function show(name) {
   state.run = name;
   const r = run();
+  if (isPlain()) {
+    state.hood = null;
+    r.cellHood = [];
+    r.neighborhoods.forEach((h, k) => h.cells.forEach(i => { r.cellHood[i] = k; }));
+    const inCells = r.cells.reduce((a, c) => a + c.total, 0);
+    document.getElementById("stats").innerHTML = `
+      <div class="stat"><b>${fmt(r.cells.length)}</b><span>heavy cells (≥ ${fmt(r.threshold)} pickups)</span></div>
+      <div class="stat"><b>${fmt(r.neighborhoods.length)}</b><span>neighborhoods (${fmt(r.neighborhoods.reduce((a, h) => a + h.cells.length, 0))} cells)</span></div>
+      <div class="stat"><b>${pct(inCells / r.num_clients)}</b><span>of ${fmt(r.num_clients)} pickups covered</span></div>`;
+    document.getElementById("dropped").hidden = true;
+    refresh();
+    return;
+  }
   // A cell of another encoding has other bits; close its details.
   if (!r.cells.some(c => c.bits === state.selected)) state.selected = null;
   const inCells = r.cells.reduce((a, c) => a + c.total, 0);

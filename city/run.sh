@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Build the city map: run Mastic on the company-labelled busiest day once per tab (pickup, drop-off)
-# and encoding, check every run against the plaintext answer, and write the single-file map
+# Build the city map: run Mastic on the company-labelled busiest day once per tab (pickup, drop-off,
+# plain for the neighborhoods tab) and encoding, check every run against the plaintext answer, and write the single-file map
 # city/dist/city-map.html.
 #
-#   city/run.sh                            # both tabs, all four encodings
+#   city/run.sh                            # all three tabs, all four encodings
 #   city/run.sh dropoff-morton pickup-h3   # only these runs (<tab>-<encoding>)
 #
 # Makes city/data/rides_day_companies.csv first if it is missing. Run <tab>-<encoding> uses
@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 
 runs=("$@")
 if [[ ${#runs[@]} -eq 0 ]]; then
-    for tab in pickup dropoff; do
+    for tab in pickup dropoff plain; do
         for encoding in mosaic-grid geohash h3 morton; do
             runs+=("$tab-$encoding")
         done

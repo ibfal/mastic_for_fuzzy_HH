@@ -11,6 +11,8 @@ reports:
   - **Drop-offs:** α is the drop-off point (`alpha = "dropoff"` in the config), so the heavy cells
     are popular destinations. The hour block is the drop-off hour (`dropoff_hour`, from
     `completed_on`) instead of the pickup hour.
+  - **Neighborhoods:** α is the pickup point and β is just the count (`weight = "constant"`, 1
+    bucket). The heavy cells are then grouped into neighborhoods (below).
 - **β** has five one-hot blocks:
 
   | Block | Buckets |
@@ -41,7 +43,7 @@ therefore grows with rides × candidates × β length.
 ## Run
 
 ```bash
-city/run.sh                            # both tabs x four encodings, about 2 minutes each
+city/run.sh                            # three tabs x four encodings: ~2 min each with weights, ~15 s plain
 city/run.sh dropoff-morton pickup-h3   # only some runs (<tab>-<encoding>)
 open city/dist/city-map.html
 ```
@@ -62,6 +64,7 @@ open city/dist/city-map.html
 | `make_company_rides.py` | Adds a seeded random `company` column to the day data |
 | `configs/city-day-{pickup,dropoff}-*.toml` | One config per tab and encoding: Mosaic grid, geohash, H3, Morton |
 | `run.sh` | Runs Mastic for each tab and encoding, then checks the results and builds the map |
+| `neighborhoods.py` | Groups the heavy cells of the plain runs into neighborhoods (used by `build_map.py`) |
 | `check_companies.py` | Plaintext check: the same heavy cells and the same value in every block |
 | `map.html` → `build_map.py` | Map template; the builder inlines the final heavy cells |
 
@@ -109,9 +112,50 @@ all Uber. `--uniform` turns them off.
   - Getting a complete answer for a lower threshold (e.g. 0.1% of the evening rides) needs a new
     Mastic query, for example with the companies sending only their evening rides.
 
+## Neighborhoods
+
+The third tab groups the heavy pickup cells of the plain-count runs into neighborhoods. The rules
+are in `neighborhoods.py`:
+
+1. **Touching cells connect.** Heavy cells that share a side or a corner (for H3, a side) are
+   connected, however far the chain goes.
+2. **One-cell gaps are bridged.** Connected areas only one cell apart are joined, and the cell in
+   the gap becomes part of the neighborhood (`GAP = 1`).
+3. **Holes are filled.** Cells enclosed by a neighborhood belong to it. A heavy cell, or a smaller
+   neighborhood, inside a hole joins the surrounding neighborhood.
+4. **Minimum size.** A neighborhood needs at least 2 heavy cells (`MIN_CELLS = 2`), so a lone
+   heavy cell isn't one.
+
+**Cells added by rules 2 and 3** are below the threshold, so their pickups were never revealed.
+The map shows them tinted and dashed, and they add nothing to the neighborhood's pickups.
+
+**Borders** follow the outer edge of all of a neighborhood's cells. Each neighborhood has exactly
+one border, with no inner rings.
+
+Results on the busiest day:
+
+| Encoding | Neighborhoods | Heavy cells in a neighborhood | Biggest neighborhood |
+|---|---|---|---|
+| Mosaic grid, Morton | 8 | 138 of 158 | 107 heavy cells + 28 added, 74% of the pickups in heavy cells |
+| Geohash | 10 | 135 of 164 | 71% of the pickups |
+| H3 | 10 | 136 of 157 | 71% of the pickups |
+
+Downtown's connected areas are mostly one cell apart, so bridging the gaps joins them into one
+large neighborhood.
+
+Two other rules were tried and rejected:
+
+- **Chaining at 5 steps:** linked the whole centre into one blob (126 of 158 cells).
+- **Every pair within 5 steps:** split connected areas apart and grouped cells with gaps between
+  them.
+
+The grouping runs in `build_map.py` on the cells the city already learned, so it reveals nothing
+new.
+
 ## Privacy
 
-The two tabs are two queries over the same rides. Together the city learns the heavy pickup cells
+The Pickups and Drop-offs tabs are two queries over the same rides, and the Neighborhoods tab is a
+third (pickups, count only). Together the city learns the heavy pickup cells
 and the heavy drop-off cells, each with its block totals. It still does not learn which pickup
 goes with which drop-off, apart from the three named zones.
 

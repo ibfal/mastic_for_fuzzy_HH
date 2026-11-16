@@ -9,8 +9,8 @@ hist_buckets = 34
 server_0 = "0.0.0.0:8000"
 server_1 = "0.0.0.0:8001"
 
-# 34 buckets make each VIDPF key ~18 KB; keep a batch of keys under tarpc's 8 MiB frame limit.
-add_report_share_batch_size = 300
+# 34 buckets make each VIDPF key ~18-21 KB; keep a batch of keys under tarpc's 8 MiB frame limit.
+add_report_share_batch_size = 250
 # Larger batches exceed tarpc's 8 MiB frame limit (100000 fails on the month dataset).
 query_flp_batch_size = 50000
 zipf_unique_buckets = 1000

@@ -5,6 +5,10 @@ through the levels of the heavy-hitters crawl. At each level every candidate pre
 its region: filled if its count reached the threshold and the crawl expands it, dashed if it was
 pruned. This is what the collector learns, including the counts of pruned prefixes.
 
+For runs with weights (e.g. `ride-austin-day-morton-all`), hovering a heavy cell at the final level
+shows its histograms: pickup hour, car category, surge, drop-off zone. The servers reveal only
+counts during the crawl and histograms only for the final heavy cells, so nothing else has one.
+
 ## Save runs
 
 ```sh

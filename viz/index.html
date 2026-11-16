@@ -19,6 +19,13 @@
     --pruned: #9a9a93;
     --note-bg: #fff6dc;
     --note-text: #6a5100;
+    /* Benchmark charts: categorical slots 1-4, one per encoding (validated, light surface). */
+    --s1: #2a78d6;
+    --s2: #eb6834;
+    --s3: #1baf7a;
+    --s4: #eda100;
+    --grid: #ececE6;
+    --good: #0b7a3b;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -33,6 +40,12 @@
       --pruned: #8a8a83;
       --note-bg: #3a3218;
       --note-text: #f1d98a;
+      --s1: #3987e5;
+      --s2: #d95926;
+      --s3: #199e70;
+      --s4: #c98500;
+      --grid: #2b2b28;
+      --good: #4cc27a;
     }
   }
   :root[data-theme="dark"] {
@@ -47,16 +60,22 @@
     --pruned: #8a8a83;
     --note-bg: #3a3218;
     --note-text: #f1d98a;
+    --s1: #3987e5;
+    --s2: #d95926;
+    --s3: #199e70;
+    --s4: #c98500;
+    --grid: #2b2b28;
+    --good: #4cc27a;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
+  html, body { margin: 0; }
   body {
     background: var(--bg);
     color: var(--text);
     font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
-    display: flex;
-    flex-direction: column;
   }
+  /* The crawl maps fill the first screen; the benchmark section is below it. */
+  .viewer { height: 100vh; display: flex; flex-direction: column; }
   header {
     display: flex;
     flex-wrap: wrap;
@@ -174,12 +193,65 @@
   :root[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9); }
   .leaflet-container { font: inherit; }
   @media (max-width: 760px) {
+    .viewer { height: auto; }
     main { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: minmax(360px, 70vh); }
     header { padding: 10px 16px; }
   }
+  .bench { padding: 20px 16px 40px; border-top: 1px solid var(--border); background: var(--bg); }
+  .bench[hidden] { display: none; }
+  .bench-inner { max-width: 1240px; margin: 0 auto; }
+  .bench h2 { font-size: 18px; margin: 0; font-weight: 650; }
+  .bench .lede { color: var(--muted); margin: 4px 0 0; max-width: 900px; }
+  .bench .env { color: var(--muted); font-size: 12px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .bench .status { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 4px 10px;
+    border: 1px solid var(--border); border-radius: 999px; background: var(--panel); font-size: 13px; }
+  .bench .status svg { color: var(--good); flex: none; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 16px 0 12px; border-bottom: 1px solid var(--border); }
+  .tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none;
+    padding: 6px 10px; color: var(--muted); font-weight: 550; }
+  .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+  .tabs button:hover { color: var(--text); border-color: transparent transparent var(--border); }
+  .tabs button[aria-selected="true"]:hover { border-bottom-color: var(--accent); }
+  .tab-note { color: var(--muted); font-size: 13px; margin: 0 0 12px; max-width: 980px; }
+  .legend-row { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 10px; font-size: 13px; }
+  .legend-row span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend-row i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .chart { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px 8px; min-width: 0; }
+  .chart h3 { font-size: 13px; font-weight: 600; margin: 0; }
+  .chart .sub { color: var(--muted); font-size: 12px; margin: 1px 0 4px; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .chart .gridline { stroke: var(--grid); stroke-width: 1; }
+  .chart .baseline { stroke: var(--border); stroke-width: 1; }
+  .chart .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .chart .cat { fill: var(--text); font-size: 12px; }
+  .chart .whisker { stroke: var(--muted); stroke-width: 1.25; }
+  .chart .hit { fill: transparent; cursor: default; }
+  .chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .chart .end-label { font-size: 11px; fill: var(--text); }
+  .chart .leader { stroke: var(--muted); stroke-width: 0.75; stroke-dasharray: 2 3; }
+  .chart .crosshair { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+  .chart .dot { stroke: var(--panel); stroke-width: 2; }
+  .table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; }
+  .table-wrap h3 { font-size: 13px; font-weight: 600; margin: 10px 12px 0; }
+  table.data { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+  table.data th, table.data td { padding: 6px 12px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+  table.data th { color: var(--muted); font-weight: 550; font-size: 12px; background: var(--panel); position: sticky; top: 0; }
+  table.data th:first-child, table.data td:first-child, table.data td.l, table.data th.l { text-align: left; }
+  table.data tr:last-child td { border-bottom: none; }
+  table.data .range { color: var(--muted); font-size: 11px; }
+  table.data .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+  .pass { color: var(--good); font-weight: 600; }
+  .bench-tip { position: fixed; z-index: 1000; pointer-events: none; background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; line-height: 1.4;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.18); font-variant-numeric: tabular-nums; max-width: 280px; }
+  .bench-tip[hidden] { display: none; }
+  .bench-tip .row { display: flex; align-items: center; gap: 6px; }
+  .bench-tip i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; flex: none; }
 </style>
 </head>
 <body>
+<div class="viewer">
 <header>
   <h1>Mastic heavy-hitters crawl, by encoding</h1>
   <div>
@@ -211,9 +283,24 @@
   </div>
   <div class="details-body" id="details-body"></div>
 </section>
+</div>
+
+<section id="bench" class="bench" aria-labelledby="bench-title" hidden>
+  <div class="bench-inner">
+    <h2 id="bench-title">Benchmark results</h2>
+    <p class="lede" id="bench-lede"></p>
+    <div class="env" id="bench-env"></div>
+    <div id="bench-status"></div>
+    <div class="tabs" role="tablist" id="bench-tabs"></div>
+    <div id="bench-panel" role="tabpanel"></div>
+  </div>
+</section>
+<div class="bench-tip" id="bench-tip" hidden></div>
 
 <!-- scripts/build_viz.py replaces null with every run, for the single-file copy. -->
 <script id="inline-runs" type="application/json">null</script>
+<!-- scripts/build_viz.py replaces null with bench/results/ (the benchmark), for the single-file copy. -->
+<script id="inline-bench" type="application/json">null</script>
 <script>
 "use strict";
 
@@ -683,6 +770,445 @@ async function main() {
 }
 
 main();
+</script>
+<script>
+// ---------------------------------------------------------------------------------------------
+// Benchmark section: bench/results/ from the benchmarking branch (bench/scripts/evaluate.py),
+// bundled by scripts/build_viz.py into results/bench.json and the single-file copy.
+// ---------------------------------------------------------------------------------------------
+(() => {
+"use strict";
+
+// One fixed colour per encoding, in the same order as the map panes; never reassigned.
+const ENCODINGS = [
+  { key: "mosaic_grid", name: "Mosaic grid", color: "--s1" },
+  { key: "geohash", name: "Geohash", color: "--s2" },
+  { key: "h3", name: "H3", color: "--s3" },
+  { key: "morton", name: "Morton", color: "--s4" },
+];
+const SUBSETS = [
+  { key: "1of3", name: "1/3 day" },
+  { key: "2of3", name: "2/3 day" },
+  { key: "3of3", name: "Full day" },
+];
+
+const tip = document.getElementById("bench-tip");
+let bench = null;
+
+const color = (enc) => `var(${enc.color})`;
+const escB = (t) => String(t).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+function num(v, digits = 0) {
+  if (v === null || v === undefined || Number.isNaN(v)) return "–";
+  return Number(v).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+function row(enc, subset) {
+  return bench.rows.find((r) => r.encoding === enc && r.subset === subset);
+}
+// median, min, max of a summary column, with an optional scale (e.g. bytes to MB).
+function stat(r, base, scale = 1) {
+  return { med: r[base + "_median"] / scale, min: r[base + "_min"] / scale, max: r[base + "_max"] / scale };
+}
+function withRange(s, digits = 0) {
+  const same = num(s.min, digits) === num(s.max, digits);
+  return num(s.med, digits) + (same ? "" : ` <span class="range">[${num(s.min, digits)}–${num(s.max, digits)}]</span>`);
+}
+function levelsSum(steps) {
+  return Object.entries(steps).filter(([k]) => k.startsWith("level_")).reduce((a, [, v]) => a + v, 0);
+}
+
+// ---- tooltip ------------------------------------------------------------------------------
+function showTip(html, event) {
+  tip.innerHTML = html;
+  tip.hidden = false;
+  const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = event.clientX + pad, y = event.clientY + pad;
+  if (x + w > innerWidth - 8) x = event.clientX - w - pad;
+  if (y + h > innerHeight - 8) y = event.clientY - h - pad;
+  tip.style.left = `${Math.max(8, x)}px`;
+  tip.style.top = `${Math.max(8, y)}px`;
+}
+function hideTip() { tip.hidden = true; }
+
+// ---- axes ---------------------------------------------------------------------------------
+function niceTicks(max, count = 4) {
+  if (max <= 0) return [0, 1];
+  const raw = max / count, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw);
+  const ticks = [];
+  for (let v = 0; v <= max + step * 0.001; v += step) ticks.push(v);
+  if (ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);
+  return ticks;
+}
+function tickLabel(v, unit) {
+  if (unit === "%") return `${Math.round(v * 100)}%`;
+  if (v >= 1000 && Number.isInteger(v)) return num(v);
+  return Number.isInteger(v) ? String(v) : v.toFixed(v < 1 ? 2 : 1);
+}
+
+// Grouped bars: one group per category, one bar per encoding; whiskers show min–max.
+function barChart({ title, sub, categories, value, digits = 0, unit = "", tipLabel }) {
+  const W = 600, H = 230, m = { t: 8, r: 8, b: 26, l: 52 };
+  const pw = W - m.l - m.r, ph = H - m.t - m.b;
+  const cells = categories.map((c) => ENCODINGS.map((e) => ({ c, e, s: value(e.key, c.key) })));
+  const max = Math.max(...cells.flat().map((d) => (d.s ? Math.max(d.s.med, d.s.max ?? d.s.med) : 0)));
+  const ticks = niceTicks(max), top = ticks[ticks.length - 1] || 1;
+  const y = (v) => m.t + ph - (v / top) * ph;
+  const gw = pw / categories.length, gap = 2;
+  const bw = Math.min(30, (gw * 0.72 - gap * 3) / 4);
+  const fmtV = (v) => (unit === "%" ? `${num(v * 100, 1)}%` : `${num(v, digits)}${unit ? " " + unit : ""}`);
+
+  let svg = "";
+  for (const t of ticks) {
+    svg += `<line class="gridline" x1="${m.l}" x2="${W - m.r}" y1="${y(t)}" y2="${y(t)}"/>` +
+      `<text class="tick" x="${m.l - 6}" y="${y(t) + 4}" text-anchor="end">${tickLabel(t, unit)}</text>`;
+  }
+  svg += `<line class="baseline" x1="${m.l}" x2="${W - m.r}" y1="${y(0)}" y2="${y(0)}"/>`;
+  const hits = [];
+  cells.forEach((group, gi) => {
+    const x0 = m.l + gi * gw + (gw - (bw * 4 + gap * 3)) / 2;
+    svg += `<text class="cat" x="${m.l + gi * gw + gw / 2}" y="${H - 8}" text-anchor="middle">${escB(categories[gi].name)}</text>`;
+    group.forEach((d, i) => {
+      if (!d.s) return;
+      const x = x0 + i * (bw + gap), yt = y(d.s.med), yb = y(0), r = Math.min(4, bw / 2, yb - yt);
+      // Rounded data end, square at the baseline.
+      svg += `<path d="M${x},${yb} V${yt + r} Q${x},${yt} ${x + r},${yt} H${x + bw - r} Q${x + bw},${yt} ${x + bw},${yt + r} V${yb} Z" fill="${color(d.e)}"/>`;
+      if (d.s.min !== undefined && d.s.max - d.s.min > top * 0.004) {
+        const cx = x + bw / 2;
+        svg += `<line class="whisker" x1="${cx}" x2="${cx}" y1="${y(d.s.min)}" y2="${y(d.s.max)}"/>` +
+          `<line class="whisker" x1="${cx - 3}" x2="${cx + 3}" y1="${y(d.s.min)}" y2="${y(d.s.min)}"/>` +
+          `<line class="whisker" x1="${cx - 3}" x2="${cx + 3}" y1="${y(d.s.max)}" y2="${y(d.s.max)}"/>`;
+      }
+      const idx = hits.length;
+      hits.push(d);
+      svg += `<rect class="hit" data-i="${idx}" x="${x - gap / 2}" y="${m.t}" width="${bw + gap}" height="${ph}"/>`;
+    });
+  });
+  const el = document.createElement("div");
+  el.className = "chart";
+  el.innerHTML = `<h3>${escB(title)}</h3>${sub ? `<div class="sub">${escB(sub)}</div>` : ""}` +
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${escB(title)}">${svg}</svg>`;
+  el.querySelectorAll(".hit").forEach((h) => {
+    const d = hits[+h.dataset.i];
+    const range = d.s.min !== undefined && fmtV(d.s.min) !== fmtV(d.s.max)
+      ? `<div style="color:var(--muted)">range ${fmtV(d.s.min)} – ${fmtV(d.s.max)}</div>` : "";
+    const html = `<div class="row"><i style="background:${color(d.e)}"></i><b>${d.e.name}</b> · ${escB(d.c.name)}</div>` +
+      `<div>${escB(tipLabel || title)}: <b>${fmtV(d.s.med)}</b></div>${range}`;
+    h.addEventListener("mousemove", (ev) => showTip(html, ev));
+    h.addEventListener("mouseleave", hideTip);
+  });
+  return el;
+}
+
+// Lines: online time of each crawl level, one line per encoding, labelled at its end.
+function levelChart(subsetKey) {
+  const W = 600, H = 240, m = { t: 10, r: 86, b: 30, l: 52 };
+  const pw = W - m.l - m.r, ph = H - m.t - m.b;
+  const series = ENCODINGS.map((e) => {
+    const r = row(e.key, subsetKey);
+    const steps = r.online_steps_median_ms;
+    const pts = Object.keys(steps).filter((k) => k.startsWith("level_"))
+      .map((k) => [+k.slice(6), steps[k]]).sort((a, b) => a[0] - b[0]);
+    return { e, pts };
+  });
+  const maxX = Math.max(...series.map((s) => s.pts.length - 1));
+  const maxY = Math.max(...series.flatMap((s) => s.pts.map((p) => p[1])));
+  const ticks = niceTicks(maxY), top = ticks[ticks.length - 1];
+  const x = (i) => m.l + (i / maxX) * pw, y = (v) => m.t + ph - (v / top) * ph;
+  let svg = "";
+  for (const t of ticks) {
+    svg += `<line class="gridline" x1="${m.l}" x2="${m.l + pw}" y1="${y(t)}" y2="${y(t)}"/>` +
+      `<text class="tick" x="${m.l - 6}" y="${y(t) + 4}" text-anchor="end">${tickLabel(t)}</text>`;
+  }
+  for (let i = 0; i <= maxX; i += 2) {
+    svg += `<text class="tick" x="${x(i)}" y="${H - 12}" text-anchor="middle">${i + 1}</text>`;
+  }
+  svg += `<text class="tick" x="${m.l + pw / 2}" y="${H}" text-anchor="middle">crawl level</text>`;
+  svg += `<line class="baseline" x1="${m.l}" x2="${m.l + pw}" y1="${y(0)}" y2="${y(0)}"/>`;
+  for (const s of series) {
+    svg += `<polyline class="line" stroke="${color(s.e)}" points="${s.pts.map(([i, v]) => `${x(i)},${y(v)}`).join(" ")}"/>`;
+  }
+  // Direct labels at the line ends, nudged apart so they never overlap.
+  const ends = series.map((s) => ({ s, ex: x(s.pts.length - 1), ey: y(s.pts[s.pts.length - 1][1]) }))
+    .sort((a, b) => a.ey - b.ey);
+  for (let i = 1; i < ends.length; i++) ends[i].ly = Math.max(ends[i].ey, (ends[i - 1].ly ?? ends[i - 1].ey) + 13);
+  ends[0].ly = ends[0].ly ?? ends[0].ey;
+  for (const d of ends) {
+    svg += `<circle cx="${d.ex}" cy="${d.ey}" r="3" fill="${color(d.s.e)}"/>` +
+      `<text class="end-label" x="${m.l + pw + 8}" y="${d.ly + 4}">${d.s.e.name}</text>` +
+      `<line class="leader" x1="${d.ex + 4}" x2="${m.l + pw + 6}" y1="${d.ey}" y2="${d.ly}"/>`;
+  }
+  svg += `<g class="hover" visibility="hidden"><line class="crosshair" y1="${m.t}" y2="${y(0)}"/>` +
+    series.map((s, i) => `<circle class="dot" data-s="${i}" r="4" fill="${color(s.e)}"/>`).join("") + `</g>` +
+    `<rect class="hit" x="${m.l}" y="${m.t}" width="${pw}" height="${ph}"/>`;
+  const el = document.createElement("div");
+  el.className = "chart";
+  const subset = SUBSETS.find((s) => s.key === subsetKey);
+  el.innerHTML = `<h3>Online time per crawl level (ms)</h3><div class="sub">${escB(subset.name)}, ` +
+    `median per level. Encodings with more bits have more levels.</div>` +
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Online time per crawl level">${svg}</svg>`;
+  const svgEl = el.querySelector("svg"), hover = el.querySelector(".hover");
+  el.querySelector(".hit").addEventListener("mousemove", (ev) => {
+    const box = svgEl.getBoundingClientRect();
+    const px = ((ev.clientX - box.left) / box.width) * W;
+    const i = Math.max(0, Math.min(maxX, Math.round(((px - m.l) / pw) * maxX)));
+    hover.setAttribute("visibility", "visible");
+    hover.querySelector(".crosshair").setAttribute("x1", x(i));
+    hover.querySelector(".crosshair").setAttribute("x2", x(i));
+    const lines = series.map((s, si) => {
+      const p = s.pts.find((q) => q[0] === i), dot = hover.querySelector(`[data-s="${si}"]`);
+      dot.setAttribute("visibility", p ? "visible" : "hidden");
+      if (p) { dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(p[1])); }
+      return `<div class="row"><i style="background:${color(s.e)}"></i>${s.e.name}: <b>${p ? num(p[1], 1) + " ms" : "no level"}</b></div>`;
+    });
+    showTip(`<div><b>Level ${i + 1}</b></div>${lines.join("")}`, ev);
+  });
+  el.querySelector(".hit").addEventListener("mouseleave", () => { hover.setAttribute("visibility", "hidden"); hideTip(); });
+  return el;
+}
+
+// ---- tables -------------------------------------------------------------------------------
+function encCell(key) {
+  const e = ENCODINGS.find((x) => x.key === key);
+  return `<span class="sw" style="background:${color(e)}"></span>${e.name}`;
+}
+function table(title, headers, rows) {
+  const el = document.createElement("div");
+  el.className = "table-wrap";
+  el.innerHTML = (title ? `<h3>${escB(title)}</h3>` : "") +
+    `<table class="data"><thead><tr>${headers.map((h) => `<th${h.l ? ' class="l"' : ""}>${h.t ?? h}</th>`).join("")}</tr></thead>` +
+    `<tbody>${rows.map((r) => `<tr>${r.map((c, i) => `<td${headers[i].l ? ' class="l"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  return el;
+}
+const L = (t) => ({ t, l: true });
+// Every encoding x subset, in a fixed order.
+function eachRow(fn) {
+  return ENCODINGS.flatMap((e) => SUBSETS.map((s) => fn(row(e.key, s.key), e, s)));
+}
+
+function legend() {
+  const el = document.createElement("div");
+  el.className = "legend-row";
+  el.innerHTML = ENCODINGS.map((e) => `<span><i style="background:${color(e)}"></i>${e.name}</span>`).join("");
+  return el;
+}
+function note(html) {
+  const el = document.createElement("p");
+  el.className = "tab-note";
+  el.innerHTML = html;
+  return el;
+}
+function charts(...items) {
+  const el = document.createElement("div");
+  el.className = "charts";
+  items.forEach((c) => el.appendChild(c));
+  return el;
+}
+
+// ---- tabs ---------------------------------------------------------------------------------
+const TABS = [
+  {
+    id: "timings", name: "Timings",
+    render: () => [
+      note("Wall-clock time on one laptop with both servers on localhost. <b>Online</b> runs from the first crawl request to the collector holding the result; <b>upload</b> (clients sending reports) is separate and never part of online. Bars are medians of 5 repetitions; whiskers show min–max."),
+      legend(),
+      charts(
+        barChart({ title: "Online time (ms)", sub: "Median over 5 runs", categories: SUBSETS,
+          value: (e, s) => stat(row(e, s), "online_ms"), unit: "ms", tipLabel: "Online" }),
+        levelChart("3of3"),
+      ),
+      table("Timings (ms)", [L("Encoding"), L("Subset"), "N", "T", "Upload", "Online", "FLP check", "Crawl levels (sum)", "Last level", "Final"],
+        eachRow((r, e, s) => {
+          const st = r.online_steps_median_ms;
+          return [encCell(e.key), s.name, num(r.n_clients), num(r.threshold_abs), withRange(stat(r, "upload_ms"), 1),
+            withRange(stat(r, "online_ms"), 1), num(st.flp, 1), num(levelsSum(st), 1), num(st.last_level, 1), num(st.final, 1)];
+        })),
+    ],
+  },
+  {
+    id: "network", name: "Network model",
+    render: () => [
+      note("Modelled cost of a real network (A4): t_comm = rounds × RTT + busiest link bytes ÷ bandwidth, added to the measured online time. <b>LAN</b>: 0.5 ms RTT, 1 Gbit/s. <b>WAN</b>: 50 ms RTT, 100 Mbit/s. Client upload: one round trip plus the report over a 10 Mbit/s uplink."),
+      legend(),
+      charts(
+        barChart({ title: "Estimated online time, LAN (ms)", categories: SUBSETS,
+          value: (e, s) => stat(row(e, s), "online_est_lan_ms"), unit: "ms", tipLabel: "LAN estimate" }),
+        barChart({ title: "Estimated online time, WAN (ms)", categories: SUBSETS,
+          value: (e, s) => stat(row(e, s), "online_est_wan_ms"), unit: "ms", tipLabel: "WAN estimate" }),
+      ),
+      table("Network model (ms)", [L("Encoding"), L("Subset"), "Online (measured)", "Rounds", "Busiest link (MB)", "LAN comm", "LAN online", "WAN comm", "WAN online", "Client upload LAN", "Client upload WAN"],
+        eachRow((r, e, s) => [encCell(e.key), s.name, num(r.online_ms_median, 1), num(r.rounds_online_median),
+          num(r.bytes_online_max_link_median / 1e6, 3), num(r.online_comm_lan_ms_median, 1), withRange(stat(r, "online_est_lan_ms"), 1),
+          num(r.online_comm_wan_ms_median, 1), withRange(stat(r, "online_est_wan_ms"), 1),
+          num(r.client_upload_lan_ms_median, 3), num(r.client_upload_wan_ms_median, 3)])),
+    ],
+  },
+  {
+    id: "communication", name: "Communication",
+    render: () => [
+      note("Bytes as actually sent, per server (application level, no framing). The servers never talk to each other: the collector relays everything, so server ↔ server is 0. Upload grows with the number of clients; online traffic grows with the number of candidates the crawl evaluates."),
+      legend(),
+      charts(
+        barChart({ title: "Upload, clients → each server (MB)", categories: SUBSETS, digits: 1,
+          value: (e, s) => stat(row(e, s), "bytes_upload_client_to_server_s0", 1e6), unit: "MB", tipLabel: "Upload per server" }),
+        barChart({ title: "Online, each server → collector (MB)", categories: SUBSETS, digits: 2,
+          value: (e, s) => stat(row(e, s), "bytes_online_server_to_collector_s0", 1e6), unit: "MB", tipLabel: "Server → collector" }),
+      ),
+      table("Communication", [L("Encoding"), L("Subset"), "Rounds upload", "Rounds online", "Extra rounds", "Upload per server (MB)", "Collector → server (kB)", "Server → collector (MB)", "Server ↔ server (B)", "Online total (MB)"],
+        eachRow((r, e, s) => [encCell(e.key), s.name, num(r.rounds_upload_median), num(r.rounds_online_median), num(r.rounds_extra_median),
+          num(r.bytes_upload_client_to_server_s0_median / 1e6, 3), num(r.bytes_online_collector_to_server_s0_median / 1e3, 2),
+          num(r.bytes_online_server_to_collector_s0_median / 1e6, 3), num(r.bytes_online_server_to_server_median),
+          num(r.bytes_online_total_median / 1e6, 3)])),
+    ],
+  },
+  {
+    id: "client", name: "Client cost",
+    render: () => {
+      const one = [{ key: "3of3", name: "Per client" }];
+      return [
+        note("The client micro-benchmark (A6): one thread generates reports for the first 2,000 rides of the full day, after a warm-up pass. A report is one share for each server; the upload is both."),
+        legend(),
+        charts(
+          barChart({ title: "Report generation time (ms)", sub: "Mean per report", categories: one, digits: 4,
+            value: (e) => ({ med: row(e, "3of3").client_keygen_ms_mean }), unit: "ms", tipLabel: "Mean time" }),
+          barChart({ title: "Upload per client (bytes)", sub: "Both servers' shares", categories: one,
+            value: (e) => ({ med: row(e, "3of3").client_upload_bytes_per_client }), unit: "B", tipLabel: "Upload" }),
+        ),
+        table("Client cost", [L("Encoding"), "Rides (k)", "Mean (ms)", "Median (ms)", "p95 (ms)", "Report per server (B)", "Upload per client (B)"],
+          ENCODINGS.map((e) => {
+            const r = row(e.key, "3of3");
+            return [encCell(e.key), num(r.client_k), num(r.client_keygen_ms_mean, 4), num(r.client_keygen_ms_median, 4),
+              num(r.client_keygen_ms_p95, 4), num(r.client_report_bytes_s0), num(r.client_upload_bytes_per_client)];
+          })),
+      ];
+    },
+  },
+  {
+    id: "accuracy", name: "Accuracy",
+    render: () => [
+      note("<b>Self-check</b>: every run against the plaintext answer for the same encoding, subset and threshold — all exact. <b>Against Mosaic's reference</b> (τ = 0.02, δ = 5): Mosaic's qualifying squares, grouped into areas. Area recall = share of reference areas with a reported cell within δ; precision = share of reported cells within δ of a qualifying square; F1 combines both. Mastic reports single cells at τ = 0.005, so in most configurations it lands in only one of the reference areas."),
+      legend(),
+      charts(
+        barChart({ title: "F1 against Mosaic's reference areas", categories: SUBSETS, digits: 3,
+          value: (e, s) => ({ med: row(e, s).f1_median }), unit: "", tipLabel: "F1" }),
+        barChart({ title: "Precision against the reference", categories: SUBSETS, digits: 3,
+          value: (e, s) => ({ med: row(e, s).precision_median }), unit: "", tipLabel: "Precision" }),
+      ),
+      table("Accuracy", [L("Encoding"), L("Subset"), "N", "T", "Cells reported", "Self-check P", "Self-check R", "Exact counts", "Areas found", "Area recall", "Precision", "F1", "Reference squares"],
+        eachRow((r, e, s) => [encCell(e.key), s.name, num(r.n_clients), num(r.threshold_abs), num(r.outputs_median),
+          num(r.selfcheck_precision_median, 3), num(r.selfcheck_recall_median, 3), r.selfcheck_exact ? "yes" : "no",
+          `${num(r.areas_found_median)} / ${num(r.reference_areas)}`, num(r.area_recall_median, 3), num(r.precision_median, 3),
+          num(r.f1_median, 3), num(r.reference_squares)])),
+    ],
+  },
+  {
+    id: "leakage", name: "Leakage",
+    render: () => [
+      note("What the collector learns beyond the output (A7). <b>Revealed</b>: every prefix whose count it reconstructs during the crawl; <b>kept</b> ones are expanded, <b>pruned</b> ones are below the threshold and still revealed exactly. <b>Validity bits</b>: one accept/reject per client for the proof check and one for the final VIDPF check (2N). These runs use a single bucket, so each revealed value is a count. On the weight-buckets branch the crawl still reveals only counts; histograms come only with the final heavy cells."),
+      legend(),
+      charts(
+        barChart({ title: "Pruned prefixes revealed (sub-threshold counts)", categories: SUBSETS,
+          value: (e, s) => ({ med: row(e, s).revealed_pruned_total_median }), tipLabel: "Pruned, revealed" }),
+        barChart({ title: "Prefixes revealed in total", categories: SUBSETS,
+          value: (e, s) => ({ med: row(e, s).revealed_aggregates_total_median }), tipLabel: "Revealed" }),
+      ),
+      table("Leakage counters", [L("Encoding"), L("Subset"), "N", "Revealed", L("Kind"), "Kept", "Pruned", "Final heavy cells", "Validity bits", "Bits per client"],
+        eachRow((r, e, s) => [encCell(e.key), s.name, num(r.n_clients), num(r.revealed_aggregates_total_median), escB(r.revealed_kind),
+          num(r.revealed_kept_total_median), num(r.revealed_pruned_total_median), num(r.frontier_final_median),
+          num(r.client_validity_bits_median), num(r.client_validity_bits_median / r.n_clients, 2)])),
+    ],
+  },
+  {
+    id: "checks", name: "Checks",
+    render: () => {
+      const rows = ENCODINGS.flatMap((e) => SUBSETS.map((s) => row(e.key, s.key)));
+      const check = (name, ok, expected, measured) => {
+        const pass = rows.filter(ok).length;
+        return [escB(name), `${pass} of ${rows.length}`, expected, measured,
+          pass === rows.length ? `<span class="pass">✓ pass</span>` : "✗ fail"];
+      };
+      const uniq = (f) => [...new Set(rows.map(f))].join(" / ");
+      const checks = [
+        check("Online rounds = 2n + 5, no extra rounds", (r) => r.rounds_online_median === 2 * r.data_bits + 5 && r.rounds_extra_median === 0,
+          uniq((r) => num(2 * r.data_bits + 5)), uniq((r) => num(r.rounds_online_median))),
+        check("Upload rounds = ⌈N / 1000⌉", (r) => r.rounds_upload_median === Math.ceil(r.n_clients / 1000),
+          uniq((r) => num(Math.ceil(r.n_clients / 1000))), uniq((r) => num(r.rounds_upload_median))),
+        check("Validity bits = 2N", (r) => r.client_validity_bits_median === 2 * r.n_clients,
+          uniq((r) => num(2 * r.n_clients)), uniq((r) => num(r.client_validity_bits_median))),
+        check("Upload bytes per client = report size", (r) => Math.abs(r.bytes_upload_per_client_median - r.client_upload_bytes_per_client) < 1,
+          uniq((r) => num(r.client_upload_bytes_per_client)), uniq((r) => num(r.bytes_upload_per_client_median, 3))),
+        check("Server ↔ server bytes = 0", (r) => r.bytes_online_server_to_server_median === 0, "0", uniq((r) => num(r.bytes_online_server_to_server_median))),
+        check("Every run equals the plaintext answer", (r) => r.selfcheck_exact === true && r.selfcheck_failed_runs === 0,
+          "exact, 0 failed", uniq((r) => (r.selfcheck_exact ? "exact" : "not exact") + `, ${r.selfcheck_failed_runs} failed`)),
+      ];
+      // Repetition drift: each run's online time over its configuration's median of measured runs.
+      const medians = {};
+      for (const e of ENCODINGS) for (const s of SUBSETS) {
+        const v = bench.runs.filter((r) => r.encoding === e.key && r.subset === s.key && !r.warmup).map((r) => r.online_ms).sort((a, b) => a - b);
+        medians[e.key + s.key] = v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : NaN;
+      }
+      const reps = [...new Set(bench.runs.map((r) => r.rep))].sort((a, b) => a - b);
+      const drift = reps.map((rep) => {
+        const rs = bench.runs.filter((r) => r.rep === rep);
+        const ratios = rs.map((r) => r.online_ms / medians[r.encoding + r.subset]).sort((a, b) => a - b);
+        const mid = ratios.length % 2 ? ratios[(ratios.length - 1) / 2] : (ratios[ratios.length / 2 - 1] + ratios[ratios.length / 2]) / 2;
+        return [num(rep), rs[0].warmup ? "yes" : "no", num(rs.length), num(mid, 3), num(ratios[0], 3), num(ratios[ratios.length - 1], 3)];
+      });
+      return [
+        note("Consistency checks over all 12 encoding × subset rows, and how each repetition's online time compares with its configuration's median. Repetition 0 is the warm-up and is excluded from every result; a steady rise across repetitions would mean the laptop slowed down."),
+        table("Sanity checks", [L("Check"), "Rows passing", "Expected", "Measured", L("Status")], checks),
+        table("Repetition drift (online time ÷ configuration median)", ["Repetition", L("Warm-up"), "Runs", "Median", "Min", "Max"], drift),
+      ];
+    },
+  },
+];
+
+function selectTab(id) {
+  const tab = TABS.find((t) => t.id === id) || TABS[0];
+  try { localStorage.setItem("mastic-viz:bench-tab", JSON.stringify(tab.id)); } catch {}
+  document.querySelectorAll("#bench-tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.id === tab.id)));
+  const panel = document.getElementById("bench-panel");
+  panel.innerHTML = "";
+  hideTip();
+  tab.render().forEach((el) => panel.appendChild(el));
+}
+
+async function loadBench() {
+  try {
+    const res = await fetch("results/bench.json", { cache: "no-store" });
+    if (res.ok) { const data = await res.json(); if (data) return data; }
+  } catch {}
+  try { return JSON.parse(document.getElementById("inline-bench").textContent); } catch { return null; }
+}
+
+async function init() {
+  bench = await loadBench();
+  if (!bench || !bench.rows || !bench.rows.length) return;
+  const r0 = bench.rows[0], env = bench.env || {};
+  const measured = bench.runs.filter((r) => !r.warmup).length;
+  document.getElementById("bench-lede").innerHTML =
+    "The Mastic benchmark from the <code>benchmarking</code> branch: the four encodings on three nested subsets of the busiest day " +
+    `(${SUBSETS.map((s) => num(row("morton", s.key).n_clients) + " rides").join(", ")}), threshold τ = ${r0.threshold_frac}. ` +
+    `Each configuration ran once as a warm-up and ${r0.reps_measured} times measured; values are medians, with [min–max] where they differ.`;
+  document.getElementById("bench-env").innerHTML =
+    `${escB(r0.cpu)} · ${r0.threads} threads per server${env.os ? " · " + escB(env.os) : ""}${env.ram_gb ? " · " + env.ram_gb + " GB RAM" : ""} · ` +
+    `commit <code>${escB(String(r0.commit).slice(0, 7))}</code> · ${num(bench.runs.length)} runs (${num(measured)} measured) · source <code>${escB(bench.source)}</code>`;
+  const allExact = bench.rows.every((r) => r.selfcheck_exact === true && r.selfcheck_failed_runs === 0);
+  document.getElementById("bench-status").innerHTML = allExact
+    ? `<span class="status"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0Zm3.7 5.7-4.5 5a1 1 0 0 1-1.5 0l-2-2.2 1.4-1.3 1.3 1.4 3.8-4.2 1.5 1.3Z"/></svg>` +
+      `Self-check passed: all ${num(bench.runs.length)} runs equal the plaintext answer</span>`
+    : `<span class="status">Self-check: some runs differ from the plaintext answer</span>`;
+  const tabs = document.getElementById("bench-tabs");
+  tabs.innerHTML = TABS.map((t) => `<button role="tab" data-id="${t.id}" aria-selected="false">${t.name}</button>`).join("");
+  tabs.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => selectTab(b.dataset.id)));
+  let remembered = null;
+  try { remembered = JSON.parse(localStorage.getItem("mastic-viz:bench-tab")); } catch {}
+  document.getElementById("bench").hidden = false;
+  selectTab(remembered);
+  // Theme changes repaint through the CSS variables; no re-render needed.
+}
+
+init();
+})();
 </script>
 </body>
 </html>

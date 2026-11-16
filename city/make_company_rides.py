@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Give every RideAustin ride of the busiest month a synthetic company: Uber, Lyft, Waymo or
+"""Give every RideAustin ride of the busiest day a synthetic company: Uber, Lyft, Waymo or
 RideAustin. The result is the input of the city map: each company sends its rides as Mastic
 reports, and the city (the collector) learns only the per-company counts of the heavy cells.
 
-    python3 city/make_company_rides.py                # writes city/data/rides_month_companies.csv
+    python3 city/make_company_rides.py                # writes city/data/rides_day_companies.csv
     python3 city/make_company_rides.py --uniform      # same split everywhere
 
 The split is uneven on purpose: Uber and Lyft are the big companies, Waymo and RideAustin the
@@ -20,8 +20,8 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE = ROOT / "data" / "mosaic" / "sample_busiest_month.csv"
-OUT = ROOT / "city" / "data" / "rides_month_companies.csv"
+SOURCE = ROOT / "data" / "mosaic" / "sample_busiest_day.csv"
+OUT = ROOT / "city" / "data" / "rides_day_companies.csv"
 
 # Bucket order of the `company` weight: must match `companies` in city/configs/*.toml.
 COMPANIES = ["Uber", "Lyft", "Waymo", "RideAustin"]
@@ -38,8 +38,12 @@ HOTSPOTS = [
     ("Uber", "airport", 30.1975, -97.6664, 2.5, 1.5),
 ]
 
-# Only these columns are kept: the pickup (alpha), the company (beta) and a few for inspection.
-KEEP = ["RIDE_ID", "started_on", "start_location_lat", "start_location_long", "hour_of_day"]
+# Only these columns are kept: the pickup (alpha), the columns the other weights of beta read
+# (hour, car category, surge, drop-off) and the ride id and time for inspection.
+KEEP = [
+    "RIDE_ID", "started_on", "start_location_lat", "start_location_long", "hour_of_day",
+    "requested_car_category", "surge_factor", "end_location_lat", "end_location_long",
+]
 
 
 def km(lat1, lon1, lat2, lon2):

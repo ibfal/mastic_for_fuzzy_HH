@@ -1,0 +1,51 @@
+# City map, pickup tab: the busiest RideAustin day (2017-03-17, 21,581 rides) with a synthetic
+# company per ride (city/make_company_rides.py). Each company sends its rides as reports. alpha is
+# the pickup point. beta has five one-hot blocks: company (4) | pickup hour (24) | car category
+# (4) | surge (2) | drop-off zone (4) = 38 buckets. For every heavy cell the city learns each
+# block's totals separately: the blocks are not joined, so it does not learn e.g. Waymo's rides
+# per hour.
+# 0.1% of the rides = 21 pickups per heavy cell.
+# The month (115,174 rides) with all 38 buckets needs far more memory than one machine running
+# both servers has; the day fits (see city/README.md).
+# Mosaic's 0.001-degree grid (~111 x 96 m cells).
+mode.weighted_heavy_hitters.threshold = 0.001
+
+data_bits = 22
+hist_buckets = 38
+
+server_0 = "0.0.0.0:8000"
+server_1 = "0.0.0.0:8001"
+
+# 38 buckets make each VIDPF key ~20 KB; keep a batch of keys under tarpc's 8 MiB frame limit.
+add_report_share_batch_size = 250
+# Larger batches exceed tarpc's 8 MiB frame limit.
+query_flp_batch_size = 50000
+zipf_unique_buckets = 1000
+zipf_exponent = 1.03
+
+[dataset]
+path = "city/data/rides_day_companies.csv"
+encoding = "mosaic_grid"
+# alpha = the pickup point (the default).
+weight = ["company", "hour_of_day", "car_category", "surge", "dropoff_zone"]
+# Bucket order; must match COMPANIES in city/make_company_rides.py.
+companies = ["Uber", "Lyft", "Waymo", "RideAustin"]
+
+# Drop-off zones, in priority order (a ride goes to the first circle containing its drop-off).
+[[dataset.zones]]
+name = "airport"
+lat = 30.1975
+lon = -97.6664
+radius_km = 2.0
+
+[[dataset.zones]]
+name = "downtown"
+lat = 30.2672
+lon = -97.7431
+radius_km = 1.2
+
+[[dataset.zones]]
+name = "ut_campus"
+lat = 30.2849
+lon = -97.7341
+radius_km = 0.8

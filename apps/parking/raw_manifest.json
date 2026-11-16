@@ -1,0 +1,33 @@
+{
+ "description": "SHA-256 of the raw downloads in apps/parking/raw/ (git-ignored).",
+ "created": "2026-11-16T13:59:15+01:00",
+ "files": {
+  "On-street_Car_Parking_Sensor_Data_-_2019.csv": {
+   "dataset": "On-street Car Parking Sensor Data - 2019",
+   "url": "https://data.melbourne.vic.gov.au/explore/dataset/on-street-car-parking-sensor-data-2019/",
+   "role": "parking events (sensor status intervals)",
+   "license": "CC BY 4.0, City of Melbourne",
+   "bytes": 7450489331,
+   "sha256": "9630417bbaba1876a8a95670008f922c56322f0e6f5687a5f36600e05debc60f",
+   "file_mtime": "2026-11-16T13:15:07"
+  },
+  "on-street-parking-bays.csv": {
+   "dataset": "On-street Parking Bays",
+   "url": "https://data.melbourne.vic.gov.au/explore/dataset/on-street-parking-bays/",
+   "role": "bay locations and road segments",
+   "license": "CC BY 4.0, City of Melbourne",
+   "bytes": 3701640,
+   "sha256": "b4ba19115e1cb475f4049f62e465a3e6ca4af903e8971493b4218b935d790bb9",
+   "file_mtime": "2026-11-16T13:14:20"
+  },
+  "on-street-parking-bay-sensors.csv": {
+   "dataset": "On-street Parking Bay Sensors",
+   "url": "https://data.melbourne.vic.gov.au/explore/dataset/on-street-parking-bay-sensors/",
+   "role": "current sensors: kerbside ID with coordinates (join candidate)",
+   "license": "CC BY 4.0, City of Melbourne",
+   "bytes": 711287,
+   "sha256": "0f63ee87b3bfe7b076e759a0a9f1bb5110b3607d68cd22c3d2270b6781e4cec3",
+   "file_mtime": "2026-11-16T13:57:06"
+  }
+ }
+}

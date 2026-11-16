@@ -32,3 +32,7 @@ __pycache__/
 *.log
 viz/logs/
 viz/dist/
+# Parking application (apps/parking/PARKING_PLAN.md): raw City of Melbourne downloads and the
+# DuckDB/Parquet cache built from them are too large for git; their hashes are in raw_manifest.json.
+apps/parking/raw/
+!apps/parking/raw_manifest.json

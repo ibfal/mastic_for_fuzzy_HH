@@ -1,0 +1,4 @@
+# Python packages for the parking application scripts (apps/parking/scripts).
+#   .\.venv\Scripts\python.exe -m pip install -r apps\parking\requirements.txt
+duckdb>=1.1       # queries the 7.45 GB sensor CSV without loading it; tested with 2.0.0
+h3>=4,<5          # H3 parents for the Melbourne encoding (P1 step 6); tested with 4.5.0

@@ -84,6 +84,9 @@ pub enum Weight {
     /// Pickup hour from the `hour_of_day` column (24 buckets).
     HourOfDay,
 
+    /// Drop-off hour from the `dropoff_hour` column (24 buckets).
+    DropoffHour,
+
     /// `requested_car_category`: REGULAR, SUV, PREMIUM, LUXURY (4 buckets).
     CarCategory,
 

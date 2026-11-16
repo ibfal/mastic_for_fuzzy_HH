@@ -22,6 +22,8 @@ pub struct Ride {
     #[serde(default)]
     pub hour_of_day: Option<usize>,
     #[serde(default)]
+    pub dropoff_hour: Option<usize>,
+    #[serde(default)]
     pub requested_car_category: Option<String>,
     #[serde(default)]
     pub surge_factor: Option<f64>,
@@ -53,12 +55,23 @@ fn column<T: Copy>(value: Option<T>, name: &str) -> Result<T, String> {
     value.ok_or_else(|| format!("missing or empty column `{name}`"))
 }
 
+/// An hour column's bucket: the hour itself, which must be in 0..24.
+fn hour(value: Option<usize>, name: &str) -> Result<usize, String> {
+    let hour = column(value, name)?;
+    if hour < 24 {
+        Ok(hour)
+    } else {
+        Err(format!("{name} = {hour} is not in 0..24"))
+    }
+}
+
 impl Weight {
     /// Name used in printed and exported results.
     pub fn name(&self) -> &'static str {
         match self {
             Weight::Constant => "constant",
             Weight::HourOfDay => "hour_of_day",
+            Weight::DropoffHour => "dropoff_hour",
             Weight::CarCategory => "car_category",
             Weight::Surge => "surge",
             Weight::DropoffZone => "dropoff_zone",
@@ -72,7 +85,9 @@ impl Weight {
     pub fn bucket_labels(&self, zones: &[Zone], companies: &[String]) -> Vec<String> {
         match self {
             Weight::Constant => vec!["rides".into()],
-            Weight::HourOfDay => (0..24).map(|h| format!("{h:02}h")).collect(),
+            Weight::HourOfDay | Weight::DropoffHour => {
+                (0..24).map(|h| format!("{h:02}h")).collect()
+            }
             Weight::CarCategory => CAR_CATEGORIES.iter().map(|c| c.to_string()).collect(),
             Weight::Surge => vec!["no surge".into(), "surge".into()],
             Weight::DropoffZone | Weight::PickupZone => zones
@@ -93,14 +108,8 @@ impl Weight {
     ) -> Result<usize, String> {
         match self {
             Weight::Constant => Ok(0),
-            Weight::HourOfDay => {
-                let hour = column(ride.hour_of_day, "hour_of_day")?;
-                if hour < 24 {
-                    Ok(hour)
-                } else {
-                    Err(format!("hour_of_day = {hour} is not in 0..24"))
-                }
-            }
+            Weight::HourOfDay => hour(ride.hour_of_day, "hour_of_day"),
+            Weight::DropoffHour => hour(ride.dropoff_hour, "dropoff_hour"),
             Weight::CarCategory => {
                 let raw = ride
                     .requested_car_category
@@ -293,6 +302,15 @@ mod tests {
         };
         assert!(Weight::HourOfDay.bucket(&bad, &[], &[]).is_err());
         assert!(Weight::HourOfDay.bucket(&ride(), &[], &[]).is_err());
+
+        // The drop-off hour reads its own column, not the pickup hour.
+        let late = Ride {
+            dropoff_hour: Some(18),
+            ..r
+        };
+        assert_eq!(Weight::DropoffHour.bucket(&late, &[], &[]), Ok(18));
+        assert_eq!(Weight::DropoffHour.bucket_labels(&[], &[]).len(), 24);
+        assert!(Weight::DropoffHour.bucket(&ride(), &[], &[]).is_err());
     }
 
     #[test]

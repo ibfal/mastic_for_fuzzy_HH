@@ -1,0 +1,102 @@
+{
+ "truth": "apps/parking/data/ground_truth/mastic_app.json",
+ "app_set": "apps/parking/data/parking_day_snapshot.csv",
+ "commit": "91e7cd6cd679e40e166c48446c4d817e11f1917a",
+ "dirty": true,
+ "updated": "2026-11-16T15:54:35+01:00",
+ "encodings": {
+  "morton": {
+   "encoding": "morton",
+   "N": 40663,
+   "T": 406,
+   "cells": 21,
+   "truth_cells": 21,
+   "exact_cells": true,
+   "exact_counts": true,
+   "exact_hours": true,
+   "max_centre_diff_deg": 2.842170943040401e-14,
+   "printed_cells": 21,
+   "cells_with_zero_last_hour": 0,
+   "export_bytes": 113022,
+   "problems": [],
+   "ok": true,
+   "run": {
+    "wall_s": 35.31,
+    "ports": [
+     18100,
+     18101
+    ],
+    "threads": 5,
+    "peak_mb": {
+     "server_0": 4721,
+     "server_1": 4720,
+     "driver": 726
+    },
+    "driver_log": "apps/parking/.run/logs/morton.driver.log"
+   },
+   "export": "apps/parking/results/mastic_morton.json"
+  },
+  "geohash": {
+   "encoding": "geohash",
+   "N": 40663,
+   "T": 406,
+   "cells": 17,
+   "truth_cells": 17,
+   "exact_cells": true,
+   "exact_counts": true,
+   "exact_hours": true,
+   "max_centre_diff_deg": 0.0,
+   "printed_cells": 17,
+   "cells_with_zero_last_hour": 0,
+   "export_bytes": 145355,
+   "problems": [],
+   "ok": true,
+   "run": {
+    "wall_s": 39.67,
+    "ports": [
+     18100,
+     18101
+    ],
+    "threads": 5,
+    "peak_mb": {
+     "server_0": 4668,
+     "server_1": 4099,
+     "driver": 1217
+    },
+    "driver_log": "apps/parking/.run/logs/geohash.driver.log"
+   },
+   "export": "apps/parking/results/mastic_geohash.json"
+  },
+  "h3": {
+   "encoding": "h3",
+   "N": 40663,
+   "T": 406,
+   "cells": 28,
+   "truth_cells": 28,
+   "exact_cells": true,
+   "exact_counts": true,
+   "exact_hours": true,
+   "max_centre_diff_deg": 2.842170943040401e-14,
+   "printed_cells": 28,
+   "cells_with_zero_last_hour": 0,
+   "export_bytes": 287978,
+   "problems": [],
+   "ok": true,
+   "run": {
+    "wall_s": 38.02,
+    "ports": [
+     18100,
+     18101
+    ],
+    "threads": 5,
+    "peak_mb": {
+     "server_0": 4516,
+     "server_1": 4518,
+     "driver": 875
+    },
+    "driver_log": "apps/parking/.run/logs/h3.driver.log"
+   },
+   "export": "apps/parking/results/mastic_h3.json"
+  }
+ }
+}

@@ -53,9 +53,9 @@ fn generate(
 ) -> Option<([ReportShare; 2], Parts)> {
     let t0 = Instant::now();
     let alpha = encoder.encode(ride.start_location_lat, ride.start_location_long)?;
-    let beta = mastic
-        .encode_measurement(&dataset.weight.bucket(ride))
-        .unwrap();
+    // Every ride's bucket was checked in `main`.
+    let bucket = dataset.weight.bucket(ride).expect("bucket checked in main");
+    let beta = mastic.encode_measurement(&bucket).unwrap();
     let t1 = Instant::now();
 
     let mut rng = thread_rng();
@@ -269,6 +269,7 @@ fn main() -> io::Result<()> {
             encoder.depth()
         )));
     }
+    dataset.weight.validate().map_err(io::Error::other)?;
     if dataset.weight.num_buckets() != cfg.hist_buckets {
         return Err(io::Error::other("hist_buckets does not match the weight"));
     }
@@ -288,6 +289,13 @@ fn main() -> io::Result<()> {
         )));
     }
     rides.truncate(k);
+    // The weight's bucket for every ride (e.g. a missing `hour` for hour_of_day), untimed.
+    for (i, ride) in rides.iter().enumerate() {
+        dataset
+            .weight
+            .bucket(ride)
+            .map_err(|e| io::Error::other(format!("{csv}: row {}: {e}", i + 2)))?;
+    }
     let meta = match flags.value_of("bench_meta") {
         Some(m) => BenchMeta::parse(m)?,
         None => BenchMeta {

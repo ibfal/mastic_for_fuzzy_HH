@@ -71,18 +71,28 @@ pub enum Encoding {
 }
 
 /// What each ride contributes to the histogram `beta`.
-#[derive(Deserialize, Debug, Clone, Copy, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Weight {
     /// Every ride counts once, as in Poplar (`hist_buckets = 1`).
     #[default]
     Constant,
+
+    /// One-hot over hour-of-day buckets: the row's `hour` column (0 to 23) goes to bucket
+    /// `hour * buckets / 24` (`hist_buckets = buckets`). `buckets` must divide 24: 24 = one bucket
+    /// per hour, 6 = 4-hour blocks (00-04, ..., 20-24), 1 = the count only. Written in a config as
+    /// `weight.hour_of_day = { buckets = 24 }`.
+    HourOfDay {
+        /// Number of buckets, a divisor of 24.
+        buckets: usize,
+    },
 }
 
 /// Use real ride data instead of synthetic Zipf inputs.
 #[derive(Deserialize, Debug, Clone)]
 pub struct DatasetConfig {
-    /// Path to a CSV with `start_location_lat` and `start_location_long` columns.
+    /// Path to a CSV with `start_location_lat` and `start_location_long` columns (and `hour`
+    /// for `Weight::HourOfDay`).
     pub path: String,
 
     pub encoding: Encoding,

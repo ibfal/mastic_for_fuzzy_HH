@@ -1255,7 +1255,9 @@ async fn run_level_last(
     let encoder = cfg.dataset.as_ref().map(|d| geo::encoder(&d.encoding));
     for res in &final_values {
         let bits = mastic::bits_to_bitstring(&res.path);
-        if res.value[mastic.input_len() - 1] > Field128::from(0) {
+        // Filter on the counter (the last element), not on the last histogram bucket: with
+        // several buckets a heavy cell can have 0 in its last one (E7).
+        if res.value[mastic.input_len()] > Field128::from(0) {
             match &encoder {
                 Some(encoder) => {
                     let (lat, lon) = encoder.decode(&res.path);
@@ -1446,6 +1448,8 @@ fn write_export(
             ))
         }
     };
+    let input_len = mastic.input_len();
+    let threshold = core::cmp::max(1, (threshold_fraction * (num_clients as f64)) as u64);
     let heavy_hitters: Vec<_> = export
         .heavy_hitters()
         .into_iter()
@@ -1455,11 +1459,33 @@ fn write_export(
                 "bits": c.bits,
                 "count": c.count,
                 "value": c.value,
+                // The histogram without the counter: with Weight::HourOfDay, the count per hour
+                // bucket.
+                "buckets": &c.value[..input_len],
                 "label": h.label,
                 "center": h.center.map(|(lat, lon)| [lat, lon]),
             })
         })
         .collect();
+
+    // The run's parameters in one place (the older top-level fields stay for viz/index.html).
+    let (encoding_name, encoding_params) = match cfg.dataset.as_ref() {
+        Some(d) => {
+            let (name, params) = mastic::bench::encoding_name_and_params(&d.encoding);
+            (Some(name), Some(params))
+        }
+        None => (None, None),
+    };
+    let params = serde_json::json!({
+        "encoding": encoding_name,
+        "encoding_params": encoding_params,
+        "data_bits": cfg.data_bits,
+        "tau": threshold_fraction,
+        "T": threshold,
+        "N": num_clients,
+        "hist_buckets": cfg.hist_buckets,
+        "weight": cfg.dataset.as_ref().map(|d| d.weight),
+    });
 
     let json = serde_json::json!({
         "format": "mastic-crawl/1",
@@ -1470,7 +1496,8 @@ fn write_export(
         "num_clients": num_clients,
         "rides": rides.map(|(total, dropped)| serde_json::json!({"total": total, "dropped": dropped})),
         "threshold_fraction": threshold_fraction,
-        "threshold": core::cmp::max(1, (threshold_fraction * (num_clients as f64)) as u64),
+        "threshold": threshold,
+        "params": params,
         "keygen_seconds": keygen_seconds,
         "total_seconds": total_seconds,
         "levels": export.levels,
@@ -1527,6 +1554,7 @@ async fn main() -> io::Result<()> {
             let mut inputs = loaded.inputs;
             inputs.truncate(num_clients);
             println!("- Loaded {} rides from {}", inputs.len(), dataset.path);
+            println!("- Weight: {:?}", dataset.weight);
             let summary = format!(
                 "*** DROPPED RIDES: {} of {} outside the area of {:?}; {} rides used ***",
                 loaded.dropped,

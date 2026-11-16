@@ -38,3 +38,7 @@ apps/parking/raw/
 !apps/parking/raw_manifest.json
 # Parking data manifests and ground truth are data, not config.
 !apps/parking/data/**/*.json
+# Mastic's parking results (run_app.py, read by the frontend) are results, not config; the run
+# configs and logs are scratch.
+!apps/parking/results/*.json
+apps/parking/.run/

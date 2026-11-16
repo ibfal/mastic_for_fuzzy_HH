@@ -566,17 +566,22 @@ function drawPlain() {
   const max = Math.max(1, ...r.cells.map(c => c.total));
   const hoodColor = css("--hood");
   const neutral = css("--neutral");
-  // Cells below the threshold that a neighborhood took in (a one-cell gap or a hole): tinted, since
-  // their counts are unknown.
+  // Cells below the threshold that a neighborhood took in (a one-cell gap or a hole), with a dashed
+  // edge. Counts the crawl already revealed are shaded like heavy cells; unknown ones are tinted.
   r.neighborhoods.forEach((h, k) => {
     const lit = state.hood === null || state.hood === k;
     for (const a of h.added) {
+      const known = a.count !== null;
       for (const ring of a.region) {
         L.polygon(ring, {
-          color: hoodColor, weight: 0.5, opacity: lit ? 0.5 : 0.2, dashArray: "2 3",
-          fillColor: hoodColor, fillOpacity: lit ? 0.16 : 0.05,
+          color: hoodColor, weight: 0.5, opacity: lit ? 0.6 : 0.2, dashArray: "2 3",
+          fillColor: known ? neutral : hoodColor,
+          fillOpacity: known ? (lit ? 0.2 + 0.65 * Math.sqrt(a.count / max) : 0.08) : (lit ? 0.16 : 0.05),
         })
-          .bindTooltip(() => `<div class="tip">Below the threshold<div class="meta">Part of neighborhood #${k + 1} (in a gap or enclosed); its count was not revealed</div></div>`, { direction: "top", sticky: true })
+          .bindTooltip(() => known
+            ? `<div class="tip"><b>${fmt(a.count)}</b> pickups · count revealed by the crawl<div class="meta">Below the threshold; part of neighborhood #${k + 1} (in a gap or enclosed)</div></div>`
+            : `<div class="tip">Count unknown<div class="meta">Below the threshold and never revealed; part of neighborhood #${k + 1} (in a gap or enclosed)</div></div>`,
+            { direction: "top", sticky: true })
           .on("click", e => { L.DomEvent.stopPropagation(e); selectHood(k, false); })
           .addTo(layer);
       }
@@ -616,7 +621,7 @@ function hoodList() {
   el.innerHTML = r.neighborhoods.map((h, k) => `
     <li><button data-k="${k}" aria-pressed="${state.hood === k}">
       <span class="rank">#${k + 1}</span>
-      <span>${fmt(h.cells.length)} cell${h.cells.length === 1 ? "" : "s"}</span>
+      <span>${fmt(h.cells.length)} heavy${h.revealed_cells ? ` + ${fmt(h.revealed_cells)} revealed` : ""}${h.unknown_cells ? ` + ${fmt(h.unknown_cells)} unknown` : ""}</span>
       <span class="num">${fmt(h.total)} pickups</span>
       <span class="bar"><i style="width:${100 * h.total / max}%"></i></span>
     </button></li>`).join("");
@@ -640,7 +645,6 @@ function detailsPlain() {
   const r = run();
   const h = state.hood === null ? null : r.neighborhoods[state.hood];
   if (!h) { el.hidden = true; return; }
-  const all = r.cells.reduce((a, c) => a + c.total, 0) || 1;
   const shown = h.cells.slice(0, 12);
   const top = r.cells[h.cells[0]].total;
   const rows = shown.map(i => {
@@ -650,15 +654,24 @@ function detailsPlain() {
       <td class="n">${fmt(c.total)}</td><td class="p">${pct(c.total / h.total)}</td></tr>`;
   }).join("");
   const more = h.cells.length - shown.length;
+  const known = h.added.filter(a => a.count !== null);
+  const below = known.length || h.unknown_cells ? `
+    <div class="block"><h3>Below the threshold</h3>
+      ${known.length ? `<table>${known.slice(0, 8).map(a => `<tr><td class="name">${esc(a.label || a.bits)}</td>
+        <td class="bar"><div class="track"><i style="width:${100 * a.count / top}%;background:var(--neutral)"></i></div></td>
+        <td class="n">${fmt(a.count)}</td><td class="p">${pct(a.count / h.total)}</td></tr>`).join("")}</table>` : ""}
+      ${known.length > 8 ? `<p class="note">and ${fmt(known.length - 8)} more with revealed counts</p>` : ""}
+      <p class="note">${fmt(known.length)} cell${known.length === 1 ? "" : "s"} with the count revealed by the crawl (${fmt(h.revealed_total)} pickups, included above)${h.unknown_cells ? `; ${fmt(h.unknown_cells)} with the count unknown, not included` : ""}.</p>
+    </div>` : "";
   el.innerHTML = `
     <div class="details-head">
       <h2>Neighborhood #${state.hood + 1}: ${fmt(h.total)} pickups</h2>
-      <span class="meta">${fmt(h.cells.length)} heavy cell${h.cells.length === 1 ? "" : "s"}${h.added.length ? ` + ${fmt(h.added.length)} below the threshold` : ""} · ${pct(h.total / all)} of the pickups in heavy cells</span>
+      <span class="meta">${fmt(h.heavy_total)} in ${fmt(h.cells.length)} heavy cell${h.cells.length === 1 ? "" : "s"} + ${fmt(h.revealed_total)} in ${fmt(h.revealed_cells)} cell${h.revealed_cells === 1 ? "" : "s"} with the count revealed by the crawl${h.unknown_cells ? ` + ${fmt(h.unknown_cells)} cell${h.unknown_cells === 1 ? "" : "s"} with the count unknown` : ""} · ${pct(h.total / r.num_clients)} of all pickups</span>
       <button class="close" aria-label="Close details">×</button>
     </div>
     <div class="blocks"><div class="block"><h3>Heavy cells, busiest first</h3><table>${rows}</table>
-      ${more > 0 ? `<p class="note">and ${fmt(more)} more cell${more === 1 ? "" : "s"}</p>` : ""}</div></div>
-    <p class="note">A neighborhood is a connected area of heavy cells: cells that share a side or a corner (for H3, a side), chained together; areas only one cell apart are joined, and the cell in the gap and any enclosed cells become part of it. Those cells are below the threshold, so their pickups are unknown and not counted. At least ${r.min_cells} heavy cells. The grouping uses only the revealed counts.</p>`;
+      ${more > 0 ? `<p class="note">and ${fmt(more)} more cell${more === 1 ? "" : "s"}</p>` : ""}</div>${below}</div>
+    <p class="note">A neighborhood is a connected area of heavy cells: cells that share a side or a corner (for H3, a side), chained together; areas only one cell apart are joined, and the cell in the gap and any enclosed cells become part of it. Those cells are below the threshold. Where the crawl already revealed a cell's count (it reveals both halves of every heavy area at each level), that count is included, which reveals nothing new; the other cells' counts are unknown and not included. At least ${r.min_cells} heavy cells.</p>`;
   el.querySelector(".close").addEventListener("click", () => selectHood(null));
   el.hidden = false;
 }

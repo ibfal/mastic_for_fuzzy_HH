@@ -126,8 +126,25 @@ are in `neighborhoods.py`:
 4. **Minimum size.** A neighborhood needs at least 2 heavy cells (`MIN_CELLS = 2`), so a lone
    heavy cell isn't one.
 
-**Cells added by rules 2 and 3** are below the threshold, so their pickups were never revealed.
-The map shows them tinted and dashed, and they add nothing to the neighborhood's pickups.
+**Cells added by rules 2 and 3** are below the threshold. Some of their counts are known anyway:
+at each level the crawl reveals the count of both children of every heavy prefix, heavy or not.
+So the last level already gave the city the exact count of every cell next to a heavy cell.
+
+- **Count revealed by the crawl:** the cell is shaded like a heavy cell and its pickups are added
+  to the neighborhood. This reveals nothing new.
+- **Count unknown:** the cell was never revealed. It is tinted red and adds nothing.
+
+Each neighborhood shows heavy cells + revealed cells + unknown cells. For example, Morton's
+biggest neighborhood is 5,246 pickups in 107 heavy cells, plus 234 in 17 cells with revealed
+counts, plus 11 cells with unknown counts: 5,480 pickups in total.
+
+Across all neighborhoods, the crawl had already revealed 22 of the 37 added cells on Morton and
+the Mosaic grid, 19 of 33 on H3, and 51 of 73 on geohash (many of them 0).
+
+Counting the unknown cells would need a new query, which leaks more. Asking per cell reveals
+small counts (a count of 1 is one person's pickup location). Asking for one total per
+neighborhood lets the city subtract the known counts. Either way the leakage adds to the first
+query's.
 
 **Borders** follow the outer edge of all of a neighborhood's cells. Each neighborhood has exactly
 one border, with no inner rings.

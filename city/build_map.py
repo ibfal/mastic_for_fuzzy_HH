@@ -19,6 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import neighborhoods  # noqa: E402
+from check_companies import encoder_for  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CITY = ROOT / "city"
@@ -69,9 +70,15 @@ def summarize(run):
 def summarize_plain(run):
     """The heavy cells of a plain-count run, and the neighborhoods they form (rules in
     neighborhoods.py), biggest first by pickups. Each has its heavy cell indices, its pickups (the
-    heavy cells' counts), the below-threshold cells it took in (in a one-cell gap or enclosed;
-    their counts are unknown) and its outline around all of them."""
+    heavy cells' counts), the below-threshold cells it took in (in a one-cell gap or enclosed) and
+    its outline around all of them. An added cell's count is known when the crawl already revealed
+    it: the last crawl level reveals both children of every heavy prefix, heavy or not, so using
+    those counts reveals nothing new. The others stay unknown (count None)."""
     regions = {c["bits"]: c["region"] for c in run["levels"][-1]["candidates"]}
+    # Counts the crawl revealed at its last level, for heavy and non-heavy cells alike.
+    revealed = {c["bits"]: c["count"] for c in run["levels"][-1]["candidates"]}
+    # Names for cells that are not heavy (the export only names heavy ones), as in check_companies.
+    encoder = encoder_for(run["encoding"])
     cells = [
         {
             "bits": h["bits"],
@@ -87,16 +94,28 @@ def summarize_plain(run):
     hoods = []
     for members, added in groups:
         members.sort(key=lambda i: -cells[i]["total"])
-        total = sum(cells[i]["total"] for i in members)
+        heavy_total = sum(cells[i]["total"] for i in members)
+        extra = [
+            {"bits": b, "label": encoder.label(b), "region": r, "count": revealed.get(b)}
+            for b, r in sorted(added.items())
+        ]
+        # Revealed ones first, busiest first.
+        extra.sort(key=lambda a: (a["count"] is None, -(a["count"] or 0)))
+        revealed_total = sum(a["count"] for a in extra if a["count"] is not None)
+        total = heavy_total + revealed_total
         hoods.append({
             "cells": members,
-            "added": [{"bits": b, "region": r} for b, r in sorted(added.items())],
+            "added": extra,
+            "heavy_total": heavy_total,
+            "revealed_total": revealed_total,
+            "revealed_cells": sum(a["count"] is not None for a in extra),
+            "unknown_cells": sum(a["count"] is None for a in extra),
             "total": total,
             "outline": neighborhoods.outline(
                 [cells[i]["region"] for i in members] + list(added.values())),
-            # Ride-weighted centre.
+            # Ride-weighted centre of the heavy cells.
             "center": [
-                sum(cells[i]["center"][k] * cells[i]["total"] for i in members) / total
+                sum(cells[i]["center"][k] * cells[i]["total"] for i in members) / heavy_total
                 for k in (0, 1)
             ],
         })

@@ -185,7 +185,7 @@
 
   <details>
     <summary>What the city learns</summary>
-    <p>Each company turns each ride into a Mastic report. On the Pickups tab α is the pickup cell and β has five one-hot blocks: company, pickup hour, car category, surge and drop-off zone. On the Drop-offs tab α is the drop-off cell and the last block is the pickup zone instead. The two aggregators find the cells with at least the threshold number of rides without seeing any single report.</p>
+    <p>Each company turns each ride into a Mastic report. On the Pickups tab α is the pickup cell and β has five one-hot blocks: company, pickup hour, car category, surge and drop-off zone. On the Drop-offs tab α is the drop-off cell, the hour is the drop-off hour and the last block is the pickup zone instead. The two aggregators find the cells with at least the threshold number of rides without seeing any single report.</p>
     <p>For each heavy cell the city learns the totals of each block: rides per company, per hour, and so on. The blocks are separate, so it does not learn, for example, Waymo's rides per hour. It learns nothing about individual rides or riders, or about cells below the threshold. The colours come only from those totals.</p>
     <p>Each tab is its own query over the same rides, so with both the city learns the heavy pickup cells and the heavy drop-off cells, each with its block totals. It still does not learn which pickup goes with which drop-off, beyond the three named zones.</p>
     <p>Companies are assigned synthetically (city/make_company_rides.py); the pickups are real RideAustin data from the busiest day (March 17, 2017).</p>
@@ -213,7 +213,7 @@ const TABS = {
 };
 const ENCODING_NAMES = { "mosaic-grid": "Mosaic grid", geohash: "Geohash", h3: "H3 (hexagons)", morton: "Morton (Z-order)" };
 const BLOCK_NAMES = {
-  hour_of_day: "Pickup hour", car_category: "Car category", surge: "Surge pricing",
+  hour_of_day: "Pickup hour", dropoff_hour: "Drop-off hour", car_category: "Car category", surge: "Surge pricing",
   dropoff_zone: "Drop-off zone", pickup_zone: "Pickup zone",
 };
 const LABEL_NAMES = {
@@ -286,7 +286,8 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") select(null)
 const run = () => RUNS[state.run];
 const leader = cell => cell.counts.reduce((best, c, i, a) => (c > a[best] ? i : best), 0);
 
-// The filter groups pickup hours into six periods of HOUR_GROUP hours.
+// The filter groups the hours (pickup or drop-off) into six periods of HOUR_GROUP hours.
+const HOUR_BLOCKS = ["hour_of_day", "dropoff_hour"];
 const HOUR_GROUP = 4;
 const hourRange = g => `${String(g * HOUR_GROUP).padStart(2, "0")}:00–${String((g + 1) * HOUR_GROUP).padStart(2, "0")}:00`;
 
@@ -317,10 +318,11 @@ function filterLabel(key) {
   const r = run();
   const [kind, a, b] = key.split(":").map((x, i) => (i ? Number(x) : x));
   if (kind === "c") return r.companies[a];
-  if (kind === "h") return `pickup ${hourRange(b)}`;
+  if (kind === "h") return `${r.blocks[a].weight === "dropoff_hour" ? "drop-off" : "pickup"} ${hourRange(b)}`;
   const block = r.blocks[a];
   const label = pretty(block.labels[b]);
   if (block.weight === "hour_of_day") return `pickup at ${label}`;
+  if (block.weight === "dropoff_hour") return `drop-off at ${label}`;
   if (block.weight === "dropoff_zone") return `drop-off at ${label}`;
   if (block.weight === "pickup_zone") return `pickup at ${label}`;
   return label;
@@ -339,7 +341,7 @@ function filterOptions() {
     el.appendChild(g);
   };
   group("Company", r.companies.map((name, i) => [name, `c:${i}`]));
-  r.blocks.forEach((b, k) => group(BLOCK_NAMES[b.weight] || b.weight, b.weight === "hour_of_day"
+  r.blocks.forEach((b, k) => group(BLOCK_NAMES[b.weight] || b.weight, HOUR_BLOCKS.includes(b.weight)
     ? Array.from({ length: Math.ceil(b.labels.length / HOUR_GROUP) }, (_, g) => [hourRange(g), `h:${k}:${g}`])
     : b.labels.map((l, i) => [pretty(l), `b:${k}:${i}`])));
   el.value = [...el.options].some(o => o.value === current) ? current : "";
@@ -458,10 +460,10 @@ function bars(labels, values, colorOf, focusIndex) {
     </tr>`).join("")}</table>`;
 }
 
-function hours(labels, values, hit) {
+function hours(labels, values, hit, name) {
   const max = Math.max(1, ...values);
   const peak = values.indexOf(Math.max(...values));
-  return `<div class="hours${hit.length ? " has-hit" : ""}" role="img" aria-label="Rides per pickup hour">${values.map((v, h) =>
+  return `<div class="hours${hit.length ? " has-hit" : ""}" role="img" aria-label="Rides per ${esc(name.toLowerCase())}">${values.map((v, h) =>
     `<i${hit.includes(h) ? ' class="hit"' : ""} style="height:${100 * v / max}%" title="${esc(labels[h])}: ${fmt(v)} rides"></i>`).join("")}</div>
     <div class="hours-axis"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>
     <div class="peak">Busiest hour: <b>${esc(labels[peak])}</b>, ${fmt(values[peak])} rides</div>`;
@@ -480,7 +482,7 @@ function details() {
     ? Array.from({ length: HOUR_GROUP }, (_, j) => fb * HOUR_GROUP + j) : []);
   const blocks = r.blocks.map((b, k) => `
     <div class="block"><h3>${esc(BLOCK_NAMES[b.weight] || b.weight)}</h3>
-      ${b.weight === "hour_of_day" ? hours(b.labels, cell.stats[k], hoursHit(k)) : bars(b.labels, cell.stats[k], null, hitIn(k))}
+      ${HOUR_BLOCKS.includes(b.weight) ? hours(b.labels, cell.stats[k], hoursHit(k), BLOCK_NAMES[b.weight]) : bars(b.labels, cell.stats[k], null, hitIn(k))}
     </div>`).join("");
   el.innerHTML = `
     <div class="details-head">

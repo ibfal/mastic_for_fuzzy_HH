@@ -38,11 +38,13 @@ HOTSPOTS = [
     ("Uber", "airport", 30.1975, -97.6664, 2.5, 1.5),
 ]
 
-# Only these columns are kept: the pickup (alpha), the columns the other weights of beta read
-# (hour, car category, surge, drop-off) and the ride id and time for inspection.
+# Only these columns are kept: the pickup and drop-off points (alpha), the columns the other
+# weights of beta read, and the ride id and times for inspection. `dropoff_hour` is added from
+# `completed_on`, the time the ride ended.
 KEEP = [
-    "RIDE_ID", "started_on", "start_location_lat", "start_location_long", "hour_of_day",
-    "requested_car_category", "surge_factor", "end_location_lat", "end_location_long",
+    "RIDE_ID", "started_on", "completed_on", "start_location_lat", "start_location_long",
+    "hour_of_day", "requested_car_category", "surge_factor", "end_location_lat",
+    "end_location_long",
 ]
 
 
@@ -74,13 +76,15 @@ def main():
     totals = Counter()
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with open(args.source, newline="") as src, open(args.out, "w", newline="") as dst:
-        writer = csv.DictWriter(dst, fieldnames=KEEP + ["company"])
+        writer = csv.DictWriter(dst, fieldnames=KEEP + ["dropoff_hour", "company"])
         writer.writeheader()
         for row in csv.DictReader(src):
             lat, lon = float(row["start_location_lat"]), float(row["start_location_long"])
             company = rng.choices(COMPANIES, weights(lat, lon, args.uniform))[0]
             totals[company] += 1
-            writer.writerow({**{k: row[k] for k in KEEP}, "company": company})
+            # completed_on is "YYYY-MM-DD HH:MM:SS".
+            dropoff_hour = int(row["completed_on"][11:13])
+            writer.writerow({**{k: row[k] for k in KEEP}, "dropoff_hour": dropoff_hour, "company": company})
 
     n = sum(totals.values())
     print(f"wrote {n} rides to {args.out.relative_to(ROOT)}")

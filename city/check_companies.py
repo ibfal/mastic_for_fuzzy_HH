@@ -49,8 +49,8 @@ def bucket(weight, labels, row, zones):
         return 0
     if weight == "company":
         return labels.index(row["company"])
-    if weight == "hour_of_day":
-        return int(row["hour_of_day"])
+    if weight in ("hour_of_day", "dropoff_hour"):
+        return int(row[weight])
     if weight == "car_category":
         raw = row["requested_car_category"]
         name = raw[2:-1] if raw.startswith("b'") and raw.endswith("'") else raw

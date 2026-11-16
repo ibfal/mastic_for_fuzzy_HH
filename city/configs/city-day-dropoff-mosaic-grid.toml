@@ -1,7 +1,7 @@
 # City map, drop-off tab: the busiest RideAustin day (2017-03-17, 21,581 rides) with a synthetic
 # company per ride (city/make_company_rides.py). Each company sends its rides as reports. alpha is
 # the DROP-OFF point, so the heavy cells are popular destinations. beta has five one-hot blocks:
-# company (4) | pickup hour (24) | car category (4) | surge (2) | pickup zone (4) = 38 buckets.
+# company (4) | drop-off hour (24) | car category (4) | surge (2) | pickup zone (4) = 38 buckets.
 # For every heavy cell the city learns each block's totals separately: the blocks are not joined,
 # so it does not learn e.g. Waymo's rides per hour.
 # 0.1% of the rides = 21 drop-offs per heavy cell.
@@ -27,7 +27,7 @@ zipf_exponent = 1.03
 path = "city/data/rides_day_companies.csv"
 encoding = "mosaic_grid"
 alpha = "dropoff"
-weight = ["company", "hour_of_day", "car_category", "surge", "pickup_zone"]
+weight = ["company", "dropoff_hour", "car_category", "surge", "pickup_zone"]
 # Bucket order; must match COMPANIES in city/make_company_rides.py.
 companies = ["Uber", "Lyft", "Waymo", "RideAustin"]
 

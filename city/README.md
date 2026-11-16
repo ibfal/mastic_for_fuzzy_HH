@@ -9,7 +9,8 @@ reports:
   query, one per tab of the map:
   - **Pickups:** α is the pickup point.
   - **Drop-offs:** α is the drop-off point (`alpha = "dropoff"` in the config), so the heavy cells
-    are popular destinations.
+    are popular destinations. The hour block is the drop-off hour (`dropoff_hour`, from
+    `completed_on`) instead of the pickup hour.
 - **β** has five one-hot blocks:
 
   | Block | Buckets |

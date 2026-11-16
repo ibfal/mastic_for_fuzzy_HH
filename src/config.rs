@@ -98,6 +98,22 @@ pub enum Weight {
     /// The `company` column: which of the dataset's `companies` handled the ride
     /// (`companies.len()` buckets). A ride from a company not in the list is an error.
     Company,
+
+    /// Which of the dataset's `zones` the pickup (`start_location_lat`, `start_location_long`)
+    /// falls in, like [`Weight::DropoffZone`]; for `alpha = "dropoff"` (`zones.len() + 1` buckets).
+    PickupZone,
+}
+
+/// Which point of a ride is encoded as `alpha`, the location the heavy hitters are found over.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Alpha {
+    /// `start_location_lat`, `start_location_long`.
+    #[default]
+    Pickup,
+
+    /// `end_location_lat`, `end_location_long`. A ride without them is an error.
+    Dropoff,
 }
 
 /// A named circle for [`Weight::DropoffZone`].
@@ -143,6 +159,10 @@ pub struct DatasetConfig {
 
     pub encoding: Encoding,
 
+    /// The point of each ride encoded as `alpha`: `alpha = "pickup"` (the default) or `"dropoff"`.
+    #[serde(default)]
+    pub alpha: Alpha,
+
     /// The blocks of `beta`, in order. In the config: `weight = "<one>"` or
     /// `weight = ["<one>", "<two>", ...]`; `hist_buckets` must be the total number of buckets.
     #[serde(
@@ -152,7 +172,7 @@ pub struct DatasetConfig {
     )]
     pub weights: Vec<Weight>,
 
-    /// Drop-off zones for [`Weight::DropoffZone`], in priority order.
+    /// Zones for [`Weight::DropoffZone`] and [`Weight::PickupZone`], in priority order.
     #[serde(default)]
     pub zones: Vec<Zone>,
 

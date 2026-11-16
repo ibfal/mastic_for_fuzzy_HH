@@ -5,7 +5,7 @@ use std::error::Error;
 use serde::Deserialize;
 
 use crate::{
-    config::{DatasetConfig, Weight, Zone},
+    config::{Alpha, DatasetConfig, Weight, Zone},
     geo,
 };
 
@@ -63,6 +63,7 @@ impl Weight {
             Weight::Surge => "surge",
             Weight::DropoffZone => "dropoff_zone",
             Weight::Company => "company",
+            Weight::PickupZone => "pickup_zone",
         }
     }
 
@@ -74,7 +75,7 @@ impl Weight {
             Weight::HourOfDay => (0..24).map(|h| format!("{h:02}h")).collect(),
             Weight::CarCategory => CAR_CATEGORIES.iter().map(|c| c.to_string()).collect(),
             Weight::Surge => vec!["no surge".into(), "surge".into()],
-            Weight::DropoffZone => zones
+            Weight::DropoffZone | Weight::PickupZone => zones
                 .iter()
                 .map(|z| z.name.clone())
                 .chain(std::iter::once("other".into()))
@@ -125,6 +126,17 @@ impl Weight {
                     .position(|z| haversine_km(lat, lon, z.lat, z.lon) <= z.radius_km)
                     .unwrap_or(zones.len()))
             }
+            Weight::PickupZone => Ok(zones
+                .iter()
+                .position(|z| {
+                    haversine_km(
+                        ride.start_location_lat,
+                        ride.start_location_long,
+                        z.lat,
+                        z.lon,
+                    ) <= z.radius_km
+                })
+                .unwrap_or(zones.len())),
             Weight::Company => {
                 let name = ride.company.as_deref().ok_or("missing column `company`")?;
                 companies
@@ -161,13 +173,28 @@ impl DatasetConfig {
             .collect()
     }
 
+    /// The `(lat, lon)` of a ride that is encoded as `alpha`.
+    pub fn alpha_point(&self, ride: &Ride) -> Result<(f64, f64), String> {
+        match self.alpha {
+            Alpha::Pickup => Ok((ride.start_location_lat, ride.start_location_long)),
+            Alpha::Dropoff => Ok((
+                column(ride.end_location_lat, "end_location_lat")?,
+                column(ride.end_location_long, "end_location_long")?,
+            )),
+        }
+    }
+
     /// Check the weights against each other and against `hist_buckets`.
     pub fn check_weights(&self, hist_buckets: usize) -> Result<(), String> {
-        if self.weights.contains(&Weight::DropoffZone) && self.zones.is_empty() {
-            return Err("weight dropoff_zone needs at least one [[dataset.zones]]".into());
+        let uses_zones = self.weights.contains(&Weight::DropoffZone)
+            || self.weights.contains(&Weight::PickupZone);
+        if uses_zones && self.zones.is_empty() {
+            return Err(
+                "weights dropoff_zone and pickup_zone need at least one [[dataset.zones]]".into(),
+            );
         }
-        if !self.weights.contains(&Weight::DropoffZone) && !self.zones.is_empty() {
-            return Err("[[dataset.zones]] given but no dropoff_zone weight".into());
+        if !uses_zones && !self.zones.is_empty() {
+            return Err("[[dataset.zones]] given but no dropoff_zone or pickup_zone weight".into());
         }
         if self.weights.contains(&Weight::Company) && self.companies.is_empty() {
             return Err("weight company needs a non-empty `companies` list".into());
@@ -221,7 +248,10 @@ pub fn load_inputs(
     let rides = load_rides(&dataset.path)?;
     let mut inputs = Vec::with_capacity(rides.len());
     for (row, ride) in rides.iter().enumerate() {
-        let Some(alpha) = encoder.encode(ride.start_location_lat, ride.start_location_long) else {
+        let (lat, lon) = dataset
+            .alpha_point(ride)
+            .map_err(|e| format!("{} row {}: {e}", dataset.path, row + 1))?;
+        let Some(alpha) = encoder.encode(lat, lon) else {
             continue;
         };
         let buckets = dataset
@@ -331,6 +361,7 @@ mod tests {
         DatasetConfig {
             path: String::new(),
             encoding: Encoding::MosaicGrid,
+            alpha: Alpha::Pickup,
             weights,
             zones,
             companies: vec![],
@@ -392,6 +423,30 @@ mod tests {
         assert!(dataset(vec![Weight::Surge], vec![])
             .check_weights(2)
             .is_ok());
+    }
+
+    #[test]
+    fn pickup_zone_uses_the_pickup_and_alpha_can_be_the_dropoff() {
+        let zones = vec![zone("airport", 30.197, -97.666, 2.0)];
+        // Picked up at the airport, dropped off far away.
+        let r = Ride {
+            start_location_lat: 30.200,
+            start_location_long: -97.670,
+            ..to(31.5, -97.666)
+        };
+        assert_eq!(Weight::PickupZone.bucket(&r, &zones, &[]), Ok(0));
+        assert_eq!(Weight::DropoffZone.bucket(&r, &zones, &[]), Ok(1));
+        assert_eq!(
+            Weight::PickupZone.bucket_labels(&zones, &[]),
+            ["airport", "other"]
+        );
+
+        let mut d = dataset(vec![Weight::PickupZone], zones);
+        assert!(d.check_weights(2).is_ok());
+        assert_eq!(d.alpha_point(&r), Ok((30.200, -97.670)));
+        d.alpha = Alpha::Dropoff;
+        assert_eq!(d.alpha_point(&r), Ok((31.5, -97.666)));
+        assert!(d.alpha_point(&ride()).is_err());
     }
 
     #[test]

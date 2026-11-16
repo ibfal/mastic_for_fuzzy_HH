@@ -1496,6 +1496,7 @@ fn write_export(
         "format": "mastic-crawl/1",
         "dataset": cfg.dataset.as_ref().map(|d| &d.path),
         "encoding": cfg.dataset.as_ref().map(|d| &d.encoding),
+        "alpha": cfg.dataset.as_ref().map(|d| d.alpha),
         "weights": cfg.dataset.as_ref().map(|d| &d.weights),
         "zones": cfg.dataset.as_ref().map(|d| &d.zones),
         // The blocks of `beta`, in order: they name the first `input_len` entries of each

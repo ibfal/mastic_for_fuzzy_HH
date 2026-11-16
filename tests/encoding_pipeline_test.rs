@@ -33,6 +33,7 @@ fn ten_locations(encoding: Encoding) -> DatasetConfig {
     DatasetConfig {
         path: "data/synthetic/ten_locations.csv".into(),
         encoding,
+        alpha: Default::default(),
         weights: vec![Weight::Constant],
         zones: vec![],
         companies: vec![],

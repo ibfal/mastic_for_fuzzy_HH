@@ -1,0 +1,25 @@
+# City map: the busiest RideAustin month with a synthetic company per ride
+# (city/make_company_rides.py). Each company sends its rides as reports; beta is a one-hot over
+# the four companies, so the city learns how many rides of each company every heavy cell has.
+# H3 resolution 10 hexagons (~0.017 km2), 8 digits below the resolution-2 cell 82489ffffffffff.
+# 0.1% of 115,174 rides = 115 rides per heavy cell; finds ~140 cells.
+mode.weighted_heavy_hitters.threshold = 0.001
+
+data_bits = 24
+hist_buckets = 4
+
+server_0 = "0.0.0.0:8000"
+server_1 = "0.0.0.0:8001"
+
+add_report_share_batch_size = 1000
+# Larger batches exceed tarpc's 8 MiB frame limit (100000 fails on the month dataset).
+query_flp_batch_size = 50000
+zipf_unique_buckets = 1000
+zipf_exponent = 1.03
+
+[dataset]
+path = "city/data/rides_month_companies.csv"
+encoding.h3 = { prefix = "82489ffffffffff", resolution = 10 }
+weight = "company"
+# Bucket order; must match COMPANIES in city/make_company_rides.py.
+companies = ["Uber", "Lyft", "Waymo", "RideAustin"]

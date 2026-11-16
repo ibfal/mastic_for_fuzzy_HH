@@ -94,6 +94,10 @@ pub enum Weight {
     /// falls in: the first zone whose circle contains it, or a final "other" bucket
     /// (`zones.len() + 1` buckets).
     DropoffZone,
+
+    /// The `company` column: which of the dataset's `companies` handled the ride
+    /// (`companies.len()` buckets). A ride from a company not in the list is an error.
+    Company,
 }
 
 /// A named circle for [`Weight::DropoffZone`].
@@ -151,6 +155,10 @@ pub struct DatasetConfig {
     /// Drop-off zones for [`Weight::DropoffZone`], in priority order.
     #[serde(default)]
     pub zones: Vec<Zone>,
+
+    /// Company names for [`Weight::Company`], in bucket order.
+    #[serde(default)]
+    pub companies: Vec<String>,
 }
 
 #[derive(Deserialize)]

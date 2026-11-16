@@ -29,6 +29,8 @@ pub struct Ride {
     pub end_location_lat: Option<f64>,
     #[serde(default)]
     pub end_location_long: Option<f64>,
+    #[serde(default)]
+    pub company: Option<String>,
 }
 
 pub fn load_rides(path: &str) -> Result<Vec<Ride>, Box<dyn Error>> {
@@ -60,11 +62,13 @@ impl Weight {
             Weight::CarCategory => "car_category",
             Weight::Surge => "surge",
             Weight::DropoffZone => "dropoff_zone",
+            Weight::Company => "company",
         }
     }
 
-    /// Name of each bucket, in order. `zones` are the dataset's drop-off zones.
-    pub fn bucket_labels(&self, zones: &[Zone]) -> Vec<String> {
+    /// Name of each bucket, in order. `zones` are the dataset's drop-off zones and `companies`
+    /// its company names.
+    pub fn bucket_labels(&self, zones: &[Zone], companies: &[String]) -> Vec<String> {
         match self {
             Weight::Constant => vec!["rides".into()],
             Weight::HourOfDay => (0..24).map(|h| format!("{h:02}h")).collect(),
@@ -75,11 +79,17 @@ impl Weight {
                 .map(|z| z.name.clone())
                 .chain(std::iter::once("other".into()))
                 .collect(),
+            Weight::Company => companies.to_vec(),
         }
     }
 
     /// The bucket a ride goes into, or why the ride cannot be bucketed.
-    pub fn bucket(&self, ride: &Ride, zones: &[Zone]) -> Result<usize, String> {
+    pub fn bucket(
+        &self,
+        ride: &Ride,
+        zones: &[Zone],
+        companies: &[String],
+    ) -> Result<usize, String> {
         match self {
             Weight::Constant => Ok(0),
             Weight::HourOfDay => {
@@ -115,6 +125,13 @@ impl Weight {
                     .position(|z| haversine_km(lat, lon, z.lat, z.lon) <= z.radius_km)
                     .unwrap_or(zones.len()))
             }
+            Weight::Company => {
+                let name = ride.company.as_deref().ok_or("missing column `company`")?;
+                companies
+                    .iter()
+                    .position(|c| c == name)
+                    .ok_or_else(|| format!("company {name:?} is not in `companies`"))
+            }
         }
     }
 }
@@ -124,7 +141,7 @@ impl DatasetConfig {
     pub fn blocks(&self) -> Vec<(&'static str, Vec<String>)> {
         self.weights
             .iter()
-            .map(|w| (w.name(), w.bucket_labels(&self.zones)))
+            .map(|w| (w.name(), w.bucket_labels(&self.zones, &self.companies)))
             .collect()
     }
 
@@ -140,7 +157,7 @@ impl DatasetConfig {
     pub fn buckets(&self, ride: &Ride) -> Result<Vec<usize>, String> {
         self.weights
             .iter()
-            .map(|w| w.bucket(ride, &self.zones))
+            .map(|w| w.bucket(ride, &self.zones, &self.companies))
             .collect()
     }
 
@@ -151,6 +168,12 @@ impl DatasetConfig {
         }
         if !self.weights.contains(&Weight::DropoffZone) && !self.zones.is_empty() {
             return Err("[[dataset.zones]] given but no dropoff_zone weight".into());
+        }
+        if self.weights.contains(&Weight::Company) && self.companies.is_empty() {
+            return Err("weight company needs a non-empty `companies` list".into());
+        }
+        if !self.weights.contains(&Weight::Company) && !self.companies.is_empty() {
+            return Err("`companies` given but no company weight".into());
         }
         let total: usize = self.block_sizes().iter().sum();
         if total != hist_buckets {
@@ -232,14 +255,14 @@ mod tests {
             hour_of_day: Some(17),
             ..ride()
         };
-        assert_eq!(Weight::HourOfDay.bucket(&r, &[]), Ok(17));
-        assert_eq!(Weight::HourOfDay.bucket_labels(&[]).len(), 24);
+        assert_eq!(Weight::HourOfDay.bucket(&r, &[], &[]), Ok(17));
+        assert_eq!(Weight::HourOfDay.bucket_labels(&[], &[]).len(), 24);
         let bad = Ride {
             hour_of_day: Some(24),
             ..ride()
         };
-        assert!(Weight::HourOfDay.bucket(&bad, &[]).is_err());
-        assert!(Weight::HourOfDay.bucket(&ride(), &[]).is_err());
+        assert!(Weight::HourOfDay.bucket(&bad, &[], &[]).is_err());
+        assert!(Weight::HourOfDay.bucket(&ride(), &[], &[]).is_err());
     }
 
     #[test]
@@ -248,10 +271,18 @@ mod tests {
             requested_car_category: Some(c.into()),
             ..ride()
         };
-        assert_eq!(Weight::CarCategory.bucket(&with("b'REGULAR'"), &[]), Ok(0));
-        assert_eq!(Weight::CarCategory.bucket(&with("SUV"), &[]), Ok(1));
-        assert_eq!(Weight::CarCategory.bucket(&with("b'LUXURY'"), &[]), Ok(3));
-        assert!(Weight::CarCategory.bucket(&with("b'TRUCK'"), &[]).is_err());
+        assert_eq!(
+            Weight::CarCategory.bucket(&with("b'REGULAR'"), &[], &[]),
+            Ok(0)
+        );
+        assert_eq!(Weight::CarCategory.bucket(&with("SUV"), &[], &[]), Ok(1));
+        assert_eq!(
+            Weight::CarCategory.bucket(&with("b'LUXURY'"), &[], &[]),
+            Ok(3)
+        );
+        assert!(Weight::CarCategory
+            .bucket(&with("b'TRUCK'"), &[], &[])
+            .is_err());
     }
 
     #[test]
@@ -260,8 +291,8 @@ mod tests {
             surge_factor: Some(s),
             ..ride()
         };
-        assert_eq!(Weight::Surge.bucket(&with(1.0), &[]), Ok(0));
-        assert_eq!(Weight::Surge.bucket(&with(1.25), &[]), Ok(1));
+        assert_eq!(Weight::Surge.bucket(&with(1.0), &[], &[]), Ok(0));
+        assert_eq!(Weight::Surge.bucket(&with(1.25), &[], &[]), Ok(1));
     }
 
     fn zone(name: &str, lat: f64, lon: f64, radius_km: f64) -> Zone {
@@ -288,12 +319,12 @@ mod tests {
             zone("wide", 30.197, -97.666, 50.0),
         ];
         let w = Weight::DropoffZone;
-        assert_eq!(w.bucket_labels(&zones), ["airport", "wide", "other"]);
-        assert_eq!(w.bucket(&to(30.200, -97.670), &zones), Ok(0));
+        assert_eq!(w.bucket_labels(&zones, &[]), ["airport", "wide", "other"]);
+        assert_eq!(w.bucket(&to(30.200, -97.670), &zones, &[]), Ok(0));
         // About 8 km north of the airport: only the wide circle.
-        assert_eq!(w.bucket(&to(30.270, -97.666), &zones), Ok(1));
-        assert_eq!(w.bucket(&to(31.5, -97.666), &zones), Ok(2));
-        assert!(w.bucket(&ride(), &zones).is_err());
+        assert_eq!(w.bucket(&to(30.270, -97.666), &zones, &[]), Ok(1));
+        assert_eq!(w.bucket(&to(31.5, -97.666), &zones, &[]), Ok(2));
+        assert!(w.bucket(&ride(), &zones, &[]).is_err());
     }
 
     fn dataset(weights: Vec<Weight>, zones: Vec<Zone>) -> DatasetConfig {
@@ -302,6 +333,7 @@ mod tests {
             encoding: Encoding::MosaicGrid,
             weights,
             zones,
+            companies: vec![],
         }
     }
 
@@ -337,6 +369,29 @@ mod tests {
         assert!(dataset(vec![Weight::Surge], zones)
             .check_weights(2)
             .is_err());
+    }
+
+    #[test]
+    fn company_uses_the_configured_order() {
+        let companies: Vec<String> = ["Uber", "Lyft", "Waymo"].map(String::from).into();
+        let with = |c: &str| Ride {
+            company: Some(c.into()),
+            ..ride()
+        };
+        let w = Weight::Company;
+        assert_eq!(w.bucket_labels(&[], &companies), companies);
+        assert_eq!(w.bucket(&with("Uber"), &[], &companies), Ok(0));
+        assert_eq!(w.bucket(&with("Waymo"), &[], &companies), Ok(2));
+        assert!(w.bucket(&with("Juno"), &[], &companies).is_err());
+        assert!(w.bucket(&ride(), &[], &companies).is_err());
+
+        let mut d = dataset(vec![Weight::Company], vec![]);
+        assert!(d.check_weights(3).is_err());
+        d.companies = companies;
+        assert!(d.check_weights(3).is_ok());
+        assert!(dataset(vec![Weight::Surge], vec![])
+            .check_weights(2)
+            .is_ok());
     }
 
     #[test]

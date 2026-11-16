@@ -35,6 +35,7 @@ fn ten_locations(encoding: Encoding) -> DatasetConfig {
         encoding,
         weights: vec![Weight::Constant],
         zones: vec![],
+        companies: vec![],
     }
 }
 

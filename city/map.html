@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>City Ride-Share Map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f6f3;
+    --panel: #ffffff;
+    --text: #1d1d1b;
+    --muted: #6b6b66;
+    --border: #deded8;
+    --track: #ececE6;
+    --c0: #2a78d6;  /* Uber */
+    --c1: #eb6834;  /* Lyft */
+    --c2: #1baf7a;  /* Waymo */
+    --c3: #eda100;  /* RideAustin */
+    --ring: #ffffff;
+    --shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141413; --panel: #1e1e1c; --text: #ececE8; --muted: #a1a19b; --border: #34342f;
+      --track: #2b2b28; --c0: #3987e5; --c1: #d95926; --c2: #199e70; --c3: #c98500;
+      --ring: #1e1e1c; --shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+    }
+    :root:not([data-theme="light"]) .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9); }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141413; --panel: #1e1e1c; --text: #ececE8; --muted: #a1a19b; --border: #34342f;
+    --track: #2b2b28; --c0: #3987e5; --c1: #d95926; --c2: #199e70; --c3: #c98500;
+    --ring: #1e1e1c; --shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+  }
+  :root[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9); }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  #map { position: fixed; inset: 0; background: var(--bg); }
+  .leaflet-container { font: inherit; }
+
+  .panel {
+    position: fixed; z-index: 1000; top: 16px; left: 16px; width: 320px;
+    max-height: calc(100% - 32px); overflow: auto;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: var(--shadow); padding: 16px;
+  }
+  h1 { font-size: 17px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
+  label.field { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--muted); margin: 0 0 4px; }
+  select {
+    width: 100%; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
+  }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-top: 12px; }
+  .seg button {
+    flex: 1; font: inherit; font-size: 12.5px; padding: 6px 4px; border: 0; cursor: pointer;
+    background: var(--bg); color: var(--muted);
+  }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button[aria-pressed="true"] { background: var(--text); color: var(--panel); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0; }
+  .stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 11.5px; }
+
+  .legend { list-style: none; margin: 0; padding: 0; }
+  .legend li { margin: 0 0 2px; }
+  .legend button {
+    width: 100%; display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 8px;
+    font: inherit; color: inherit; background: none; border: 1px solid transparent; border-radius: 6px;
+    padding: 5px 6px; cursor: pointer; text-align: left;
+  }
+  .legend button:hover { background: var(--bg); }
+  .legend button[aria-pressed="true"] { border-color: var(--text); }
+  .legend .bar { grid-column: 2 / 4; height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; }
+  .legend .bar i { display: block; height: 100%; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; }
+  .num { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+
+  details { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; font-size: 12.5px; }
+  summary { cursor: pointer; font-weight: 600; }
+  details p { margin: 6px 0; color: var(--muted); }
+
+  .pie { border-radius: 50%; border: 2px solid var(--ring); box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+  .pie.dim { opacity: 0.25; }
+  .leaflet-tooltip { background: var(--panel); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow); padding: 8px 10px; }
+  .leaflet-tooltip-top::before { border-top-color: var(--panel); }
+  .tip h3 { margin: 0 0 2px; font-size: 13px; }
+  .tip .meta { color: var(--muted); font-size: 11.5px; margin-bottom: 6px; }
+  .tip table { border-collapse: collapse; }
+  .tip td { padding: 1px 6px 1px 0; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .tip .track { width: 90px; height: 7px; background: var(--track); border-radius: 3px; overflow: hidden; }
+  .tip .track i { display: block; height: 100%; }
+  .empty { position: fixed; inset: 0; display: grid; place-items: center; z-index: 2000; background: var(--bg); padding: 16px; text-align: center; }
+
+  @media (max-width: 640px) {
+    .panel { top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 48%; border-radius: 12px 12px 0 0; padding: 14px 16px; }
+    .leaflet-bottom.leaflet-right { bottom: 48%; }
+  }
+</style>
+</head>
+<body>
+<div id="map" role="region" aria-label="Map of heavy pickup cells"></div>
+
+<aside class="panel">
+  <h1>Austin ride-share pickups</h1>
+  <p class="sub">Uber, Lyft, Waymo and RideAustin report every pickup to the city through Mastic. The map shows only what the city learns.</p>
+
+  <label class="field" for="encoding">Location encoding</label>
+  <select id="encoding"></select>
+
+  <div class="seg" role="group" aria-label="View">
+    <button id="view-mix" aria-pressed="true">Company mix</button>
+    <button id="view-lead" aria-pressed="false">Leading company</button>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <label class="field">Rides in heavy cells, by company</label>
+  <ul class="legend" id="legend"></ul>
+  <p class="hint">Click a company to shade cells by its share.</p>
+
+  <details>
+    <summary>What the city learns</summary>
+    <p>Each company turns each ride into a Mastic report: the pickup cell (α) and a one-hot over the four companies (β). The two aggregators find the cells with at least the threshold number of rides without seeing any single report.</p>
+    <p>For each heavy cell the city learns one count per company. It learns nothing about individual rides or riders, nothing about cells below the threshold, and nothing beyond these counts. The colours come only from those counts.</p>
+    <p>Companies are assigned synthetically (city/make_company_rides.py); the pickups are real RideAustin data from the busiest month (Mar 31 – Apr 13, 2017).</p>
+  </details>
+</aside>
+
+<script id="inline-runs" type="application/json">null</script>
+<script>
+const RUNS = JSON.parse(document.getElementById("inline-runs").textContent);
+const ENCODING_NAMES = { "mosaic-grid": "Mosaic grid", geohash: "Geohash", h3: "H3 (hexagons)", morton: "Morton (Z-order)" };
+const state = { run: null, view: "mix", focus: null };
+
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const color = i => css(`--c${i}`);
+const fmt = n => n.toLocaleString("en-US");
+const pct = x => `${(100 * x).toFixed(x < 0.1 ? 1 : 0)}%`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+function storage(key, value) {
+  try {
+    if (value === undefined) return localStorage.getItem(key);
+    localStorage.setItem(key, value);
+  } catch (e) { return null; }
+}
+
+if (!RUNS || !Object.keys(RUNS).length) {
+  document.body.insertAdjacentHTML("beforeend",
+    '<div class="empty"><div><h1>No runs yet</h1><p class="sub">Run <code>city/run.sh</code>, then open <code>city/dist/city-map.html</code>.</p></div></div>');
+  throw new Error("no runs inlined");
+}
+
+const map = L.map("map", { zoomSnap: 0.25, zoomControl: false }).setView([30.29, -97.74], 12);
+L.control.zoom({ position: "topright" }).addTo(map);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom: 19,
+}).addTo(map);
+const layer = L.layerGroup().addTo(map);
+
+const select = document.getElementById("encoding");
+for (const name of Object.keys(RUNS)) {
+  select.add(new Option(ENCODING_NAMES[name] || name, name));
+}
+const saved = storage("city-map-encoding");
+select.value = saved && RUNS[saved] ? saved : (RUNS.morton ? "morton" : Object.keys(RUNS)[0]);
+select.addEventListener("change", () => { storage("city-map-encoding", select.value); show(select.value, false); });
+
+for (const [id, view] of [["view-mix", "mix"], ["view-lead", "lead"]]) {
+  document.getElementById(id).addEventListener("click", () => {
+    state.view = view;
+    document.getElementById("view-mix").setAttribute("aria-pressed", view === "mix");
+    document.getElementById("view-lead").setAttribute("aria-pressed", view === "lead");
+    draw();
+  });
+}
+
+function shares(cell) {
+  const total = cell.counts.reduce((a, b) => a + b, 0) || 1;
+  return cell.counts.map(c => c / total);
+}
+
+function leader(cell) {
+  let best = 0;
+  cell.counts.forEach((c, i) => { if (c > cell.counts[best]) best = i; });
+  return best;
+}
+
+function tooltip(run, cell) {
+  const s = shares(cell);
+  const rows = run.companies.map((name, i) => `
+    <tr><td><span class="swatch" style="display:inline-block;background:${color(i)}"></span></td>
+    <td>${esc(name)}</td><td style="text-align:right">${fmt(cell.counts[i])}</td>
+    <td><div class="track"><i style="width:${100 * s[i]}%;background:${color(i)}"></i></div></td>
+    <td class="num">${pct(s[i])}</td></tr>`).join("");
+  return `<div class="tip"><h3>${fmt(cell.total)} rides</h3>
+    <div class="meta">${esc(cell.label || cell.bits)}</div><table>${rows}</table></div>`;
+}
+
+function pieIcon(cell, size, dim) {
+  const s = shares(cell);
+  let acc = 0;
+  const stops = s.map((x, i) => {
+    const from = acc; acc += x;
+    return `${color(i)} ${(from * 360).toFixed(2)}deg ${(acc * 360).toFixed(2)}deg`;
+  }).join(", ");
+  return L.divIcon({
+    className: "",
+    iconSize: [size, size],
+    html: `<div class="pie${dim ? " dim" : ""}" style="width:${size}px;height:${size}px;background:conic-gradient(${stops})"></div>`,
+  });
+}
+
+function draw() {
+  const run = RUNS[state.run];
+  layer.clearLayers();
+  const max = Math.max(...run.cells.map(c => c.total));
+  const focus = state.focus;
+  // Biggest first, so small cells stay on top and can be hovered.
+  const cells = [...run.cells].sort((a, b) => b.total - a.total);
+  for (const cell of cells) {
+    const s = shares(cell);
+    const tip = () => tooltip(run, cell);
+    if (state.view === "lead" || focus !== null) {
+      // Fill each cell's real outline: the leading company, or the focused company's share.
+      const i = focus ?? leader(cell);
+      const strength = focus !== null ? s[i] : (s[i] - 0.25) / 0.75;
+      const opacity = 0.15 + 0.75 * Math.max(0, Math.min(1, strength));
+      for (const ring of cell.region) {
+        L.polygon(ring, { color: color(i), weight: 1, opacity: 0.9, fillColor: color(i), fillOpacity: opacity })
+          .bindTooltip(tip, { direction: "top", sticky: true }).addTo(layer);
+      }
+    }
+    if (state.view === "mix") {
+      const size = Math.round(10 + 26 * Math.sqrt(cell.total / max));
+      L.marker(cell.center, { icon: pieIcon(cell, size, focus !== null), riseOnHover: true })
+        .bindTooltip(tip, { direction: "top", offset: [0, -size / 2] }).addTo(layer);
+    }
+  }
+}
+
+function legend(run) {
+  const totals = run.companies.map((_, i) => run.cells.reduce((a, c) => a + c.counts[i], 0));
+  const all = totals.reduce((a, b) => a + b, 0) || 1;
+  const el = document.getElementById("legend");
+  el.innerHTML = run.companies.map((name, i) => `
+    <li><button data-i="${i}" aria-pressed="${state.focus === i}">
+      <span class="swatch" style="background:${color(i)}"></span>
+      <span>${esc(name)}</span>
+      <span class="num">${fmt(totals[i])} · ${pct(totals[i] / all)}</span>
+      <span class="bar"><i style="width:${100 * totals[i] / all}%;background:${color(i)}"></i></span>
+    </button></li>`).join("");
+  for (const b of el.querySelectorAll("button")) {
+    b.addEventListener("click", () => {
+      const i = Number(b.dataset.i);
+      state.focus = state.focus === i ? null : i;
+      legend(run);
+      draw();
+    });
+  }
+}
+
+function show(name, fit) {
+  state.run = name;
+  const run = RUNS[name];
+  const inCells = run.cells.reduce((a, c) => a + c.total, 0);
+  document.getElementById("stats").innerHTML = `
+    <div class="stat"><b>${fmt(run.cells.length)}</b><span>heavy cells</span></div>
+    <div class="stat"><b>${fmt(run.threshold)}</b><span>rides to be heavy (${pct(run.threshold_fraction)})</span></div>
+    <div class="stat"><b>${pct(inCells / run.num_clients)}</b><span>of ${fmt(run.num_clients)} rides covered</span></div>`;
+  legend(run);
+  draw();
+  if (fit) {
+    const pts = run.cells.map(c => c.center);
+    if (pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 14 });
+  }
+}
+
+// Redraw when the colour scheme changes, since the company colours come from CSS.
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { legend(RUNS[state.run]); draw(); });
+
+show(select.value, true);
+</script>
+</body>
+</html>

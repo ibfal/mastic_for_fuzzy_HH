@@ -14,24 +14,24 @@
     --muted: #6b6b66;
     --border: #deded8;
     --track: #ececE6;
-    --c0: #2a78d6;  /* Uber */
-    --c1: #eb6834;  /* Lyft */
-    --c2: #1baf7a;  /* Waymo */
-    --c3: #eda100;  /* RideAustin */
+    --c0: #1a4fa8;  /* Uber */
+    --c1: #c4420f;  /* Lyft */
+    --c2: #0d7a4f;  /* Waymo */
+    --c3: #7b3fd0;  /* RideAustin */
     --ring: #ffffff;
     --shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #141413; --panel: #1e1e1c; --text: #ececE8; --muted: #a1a19b; --border: #34342f;
-      --track: #2b2b28; --c0: #3987e5; --c1: #d95926; --c2: #199e70; --c3: #c98500;
+      --track: #2b2b28; --c0: #5b9cf0; --c1: #f07a45; --c2: #2fbf85; --c3: #a77bf3;
       --ring: #1e1e1c; --shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
     }
     :root:not([data-theme="light"]) .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9); }
   }
   :root[data-theme="dark"] {
     --bg: #141413; --panel: #1e1e1c; --text: #ececE8; --muted: #a1a19b; --border: #34342f;
-    --track: #2b2b28; --c0: #3987e5; --c1: #d95926; --c2: #199e70; --c3: #c98500;
+    --track: #2b2b28; --c0: #5b9cf0; --c1: #f07a45; --c2: #2fbf85; --c3: #a77bf3;
     --ring: #1e1e1c; --shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
   }
   :root[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9); }
@@ -236,9 +236,9 @@ function draw() {
       // Fill each cell's real outline: the leading company, or the focused company's share.
       const i = focus ?? leader(cell);
       const strength = focus !== null ? s[i] : (s[i] - 0.25) / 0.75;
-      const opacity = 0.15 + 0.75 * Math.max(0, Math.min(1, strength));
+      const opacity = 0.3 + 0.6 * Math.max(0, Math.min(1, strength));
       for (const ring of cell.region) {
-        L.polygon(ring, { color: color(i), weight: 1, opacity: 0.9, fillColor: color(i), fillOpacity: opacity })
+        L.polygon(ring, { color: color(i), weight: 1.5, opacity: 1, fillColor: color(i), fillOpacity: opacity })
           .bindTooltip(tip, { direction: "top", sticky: true }).addTo(layer);
       }
     }

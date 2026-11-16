@@ -70,25 +70,87 @@ pub enum Encoding {
     },
 }
 
-/// What each ride contributes to the histogram `beta`.
-#[derive(Deserialize, Debug, Clone, Copy, Default)]
+/// One block of the one-hot histogram `beta`: which of its buckets a ride goes into. The FLP
+/// checks that every block is one-hot, so every ride adds exactly 1 to one bucket of each block.
+/// The threshold is on the separate VIDPF counter, so which regions are heavy does not depend on
+/// the weights: they only decide the histograms each heavy region comes back with.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Weight {
-    /// Every ride counts once, as in Poplar (`hist_buckets = 1`).
+    /// Every ride counts once, as in Poplar (1 bucket).
     #[default]
     Constant,
+
+    /// Pickup hour from the `hour_of_day` column (24 buckets).
+    HourOfDay,
+
+    /// `requested_car_category`: REGULAR, SUV, PREMIUM, LUXURY (4 buckets).
+    CarCategory,
+
+    /// Whether `surge_factor` is above 1: no surge, surge (2 buckets).
+    Surge,
+
+    /// Which of the dataset's `zones` the drop-off (`end_location_lat`, `end_location_long`)
+    /// falls in: the first zone whose circle contains it, or a final "other" bucket
+    /// (`zones.len() + 1` buckets).
+    DropoffZone,
+}
+
+/// A named circle for [`Weight::DropoffZone`].
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+pub struct Zone {
+    pub name: String,
+    pub lat: f64,
+    pub lon: f64,
+    pub radius_km: f64,
+}
+
+/// `weight = "surge"` or `weight = ["hour_of_day", "surge"]`.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum OneOrMany {
+    One(Weight),
+    Many(Vec<Weight>),
+}
+
+fn one_or_many<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Weight>, D::Error> {
+    let weights = match OneOrMany::deserialize(d)? {
+        OneOrMany::One(w) => vec![w],
+        OneOrMany::Many(ws) => ws,
+    };
+    if weights.is_empty() {
+        return Err(serde::de::Error::custom(
+            "`weight` needs at least one entry",
+        ));
+    }
+    Ok(weights)
+}
+
+fn default_weights() -> Vec<Weight> {
+    vec![Weight::Constant]
 }
 
 /// Use real ride data instead of synthetic Zipf inputs.
 #[derive(Deserialize, Debug, Clone)]
 pub struct DatasetConfig {
-    /// Path to a CSV with `start_location_lat` and `start_location_long` columns.
+    /// Path to a CSV with `start_location_lat` and `start_location_long` columns, plus whatever
+    /// columns the weights read.
     pub path: String,
 
     pub encoding: Encoding,
 
+    /// The blocks of `beta`, in order. In the config: `weight = "<one>"` or
+    /// `weight = ["<one>", "<two>", ...]`; `hist_buckets` must be the total number of buckets.
+    #[serde(
+        rename = "weight",
+        default = "default_weights",
+        deserialize_with = "one_or_many"
+    )]
+    pub weights: Vec<Weight>,
+
+    /// Drop-off zones for [`Weight::DropoffZone`], in priority order.
     #[serde(default)]
-    pub weight: Weight,
+    pub zones: Vec<Zone>,
 }
 
 #[derive(Deserialize)]
@@ -96,7 +158,8 @@ pub struct Config {
     /// Number of bits of each string.
     pub data_bits: Option<usize>,
 
-    /// Number of histogram buckets for the FLP range check.
+    /// Number of histogram buckets for the FLP range check: with a dataset, the total over its
+    /// weights. See [`Config::hist_blocks`].
     pub hist_buckets: usize,
 
     /// The servers will output the collection of strings that more than a `threshold` of clients
@@ -137,6 +200,17 @@ pub struct Config {
     /// or `@file`.
     #[serde(skip)]
     pub bench_meta: Option<String>,
+}
+
+impl Config {
+    /// Number of buckets of each block of `beta`: one block per dataset weight, or a single block
+    /// of `hist_buckets` for synthetic inputs.
+    pub fn hist_blocks(&self) -> Vec<usize> {
+        match &self.dataset {
+            Some(dataset) => dataset.block_sizes(),
+            None => vec![self.hist_buckets],
+        }
+    }
 }
 
 pub fn get_config(filename: &str) -> Config {

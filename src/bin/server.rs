@@ -49,7 +49,7 @@ impl Collector for CollectorServer {
     async fn reset(self, _: context::Context, req: ResetRequest) -> String {
         let mut coll = self.arc.lock().unwrap();
         *coll = collect::KeyCollection::new(
-            Mastic::new_histogram(req.hist_buckets).unwrap(),
+            Mastic::new_multi_histogram(req.hist_blocks).unwrap(),
             self.server_id,
             &self.seed,
             self.data_bits,
@@ -323,13 +323,13 @@ impl Collector for CollectorServer {
 async fn main() -> io::Result<()> {
     let (cfg, server_id, _, _) = config::get_args("Server", true, false, false);
     let server_addr = match server_id {
-        0 => cfg.server_0,
-        1 => cfg.server_1,
+        0 => cfg.server_0.clone(),
+        1 => cfg.server_1.clone(),
         _ => panic!("Oh no!"),
     };
 
     let seed = prg::PrgSeed { key: [1u8; 16] };
-    let mastic = Mastic::new_histogram(cfg.hist_buckets).unwrap();
+    let mastic = Mastic::new_multi_histogram(cfg.hist_blocks()).unwrap();
 
     let coll =
         collect::KeyCollection::new(mastic.clone(), server_id, &seed, cfg.data_bits, [0u8; 16]);

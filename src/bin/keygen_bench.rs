@@ -54,7 +54,7 @@ fn generate(
     let t0 = Instant::now();
     let alpha = encoder.encode(ride.start_location_lat, ride.start_location_long)?;
     let beta = mastic
-        .encode_measurement(&dataset.weight.bucket(ride))
+        .encode_measurement(&dataset.buckets(ride).expect("ride cannot be bucketed"))
         .unwrap();
     let t1 = Instant::now();
 
@@ -269,10 +269,10 @@ fn main() -> io::Result<()> {
             encoder.depth()
         )));
     }
-    if dataset.weight.num_buckets() != cfg.hist_buckets {
-        return Err(io::Error::other("hist_buckets does not match the weight"));
-    }
-    let mastic = Mastic::new_histogram(cfg.hist_buckets).unwrap();
+    dataset
+        .check_weights(cfg.hist_buckets)
+        .map_err(io::Error::other)?;
+    let mastic = Mastic::new_multi_histogram(cfg.hist_blocks()).unwrap();
 
     let csv = flags.value_of("csv").unwrap();
     let k: usize = flags

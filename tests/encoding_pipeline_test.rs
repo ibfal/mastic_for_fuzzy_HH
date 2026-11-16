@@ -33,14 +33,33 @@ fn ten_locations(encoding: Encoding) -> DatasetConfig {
     DatasetConfig {
         path: "data/synthetic/ten_locations.csv".into(),
         encoding,
-        weight: Weight::Constant,
+        weights: vec![Weight::Constant],
+        zones: vec![],
     }
 }
 
 /// The heavy hitters `(alpha, count)` the two aggregators find, with the driver's threshold rule
 /// `max(1, floor(fraction * N))`.
-fn crawl(inputs: &[(Vec<bool>, usize)], data_bits: usize, fraction: f64) -> Vec<(Vec<bool>, u64)> {
-    let mastic = Mastic::new_histogram(1).unwrap();
+fn crawl(
+    inputs: &[(Vec<bool>, Vec<usize>)],
+    data_bits: usize,
+    fraction: f64,
+) -> Vec<(Vec<bool>, u64)> {
+    crawl_histograms(inputs, data_bits, fraction, vec![1])
+        .into_iter()
+        .map(|(alpha, value)| (alpha, *value.last().unwrap()))
+        .collect()
+}
+
+/// Like [`crawl`], with `beta` in one-hot blocks of the given sizes: each heavy hitter's full
+/// value, the histograms of all blocks followed by the count.
+fn crawl_histograms(
+    inputs: &[(Vec<bool>, Vec<usize>)],
+    data_bits: usize,
+    fraction: f64,
+    hist_blocks: Vec<usize>,
+) -> Vec<(Vec<bool>, Vec<u64>)> {
+    let mastic = Mastic::new_multi_histogram(hist_blocks).unwrap();
     let mut aggregators = [0, 1].map(|server_id| {
         KeyCollection::new(
             mastic.clone(),
@@ -50,8 +69,8 @@ fn crawl(inputs: &[(Vec<bool>, usize)], data_bits: usize, fraction: f64) -> Vec<
             [0; 16],
         )
     });
-    for (alpha, bucket) in inputs {
-        let beta = mastic.encode_measurement(bucket).unwrap();
+    for (alpha, buckets) in inputs {
+        let beta = mastic.encode_measurement(buckets).unwrap();
         let (key_0, key_1) = VidpfKey::gen(alpha, &beta);
         for (aggregator, vidpf_key) in aggregators.iter_mut().zip([key_0, key_1]) {
             aggregator.add_report_share(ReportShare::Mastic {
@@ -80,7 +99,10 @@ fn crawl(inputs: &[(Vec<bool>, usize)], data_bits: usize, fraction: f64) -> Vec<
     let [shares_0, shares_1] = aggregators.each_ref().map(|a| a.final_shares());
     KeyCollection::final_values(input_len, &shares_0, &shares_1)
         .into_iter()
-        .map(|result| (result.path, u128::from(result.value[input_len]) as u64))
+        .map(|result| {
+            let value = result.value.iter().map(|&v| u128::from(v) as u64).collect();
+            (result.path, value)
+        })
         .collect()
 }
 
@@ -155,6 +177,61 @@ fn load_inputs_counts_dropped_rides() {
 }
 
 #[test]
+fn weights_come_back_as_per_cell_histograms() {
+    // The bucketed-weight configs, on the first rides of the busiest day. `all` puts all four
+    // weights in one beta.
+    for name in ["hour", "category", "surge", "dropoff", "all"] {
+        let cfg = config::get_config(&format!("src/configs/ride-austin-day-morton-{name}.toml"));
+        let dataset = cfg.dataset.as_ref().unwrap();
+        let data_bits = cfg.data_bits.unwrap();
+        let blocks = cfg.hist_blocks();
+        let mut inputs = dataset::load_inputs(dataset, data_bits, cfg.hist_buckets)
+            .unwrap()
+            .inputs;
+        inputs.truncate(3000);
+
+        // Plaintext: per cell, the count in each bucket of each block, laid out like beta.
+        let offsets: Vec<usize> = blocks
+            .iter()
+            .scan(0, |acc, &size| {
+                let offset = *acc;
+                *acc += size;
+                Some(offset)
+            })
+            .collect();
+        let mut expected = std::collections::HashMap::<Vec<bool>, Vec<u64>>::new();
+        for (alpha, buckets) in &inputs {
+            let histogram = expected
+                .entry(alpha.clone())
+                .or_insert_with(|| vec![0; cfg.hist_buckets]);
+            for (offset, bucket) in offsets.iter().zip(buckets) {
+                histogram[offset + bucket] += 1;
+            }
+        }
+        let threshold = 1.max((0.005 * inputs.len() as f64) as u64);
+        let first = blocks[0];
+        expected.retain(|_, h| h[..first].iter().sum::<u64>() >= threshold);
+
+        let found = crawl_histograms(&inputs, data_bits, 0.005, blocks.clone());
+        assert!(!found.is_empty(), "{name}: no heavy hitters");
+        assert_eq!(found.len(), expected.len(), "{name}: wrong number of cells");
+        for (alpha, value) in found {
+            let (histogram, count) = value.split_at(cfg.hist_buckets);
+            // Every block of a cell adds up to the cell's number of rides.
+            for (offset, size) in offsets.iter().zip(&blocks) {
+                let block = &histogram[*offset..offset + size];
+                assert_eq!(
+                    block.iter().sum::<u64>(),
+                    count[0],
+                    "{name}: block != count"
+                );
+            }
+            assert_eq!(Some(&histogram.to_vec()), expected.get(&alpha), "{name}");
+        }
+    }
+}
+
+#[test]
 fn every_dataset_config_matches_its_encoder() {
     let mut checked = 0;
     for entry in std::fs::read_dir("src/configs").unwrap() {
@@ -173,9 +250,9 @@ fn every_dataset_config_matches_its_encoder() {
             "{name}: data_bits does not match the encoding"
         );
         assert_eq!(
-            dataset.weight.num_buckets(),
-            cfg.hist_buckets,
-            "{name}: hist_buckets does not match the weight"
+            dataset.check_weights(cfg.hist_buckets),
+            Ok(()),
+            "{name}: weights do not match hist_buckets"
         );
         assert!(
             std::path::Path::new(&dataset.path).exists(),

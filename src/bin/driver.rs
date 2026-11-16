@@ -660,9 +660,9 @@ impl PlaintextReport {
     }
 }
 
-/// Synthesize `zipf_unique_buckets` random `(alpha, bucket)` inputs. Clients are later drawn from
-/// them by a Zipf distribution.
-fn synthetic_inputs(cfg: &config::Config) -> Vec<(Vec<bool>, usize)> {
+/// Synthesize `zipf_unique_buckets` random `(alpha, buckets)` inputs, one random bucket per block
+/// of `beta`. Clients are later drawn from them by a Zipf distribution.
+fn synthetic_inputs(cfg: &config::Config) -> Vec<(Vec<bool>, Vec<usize>)> {
     assert!(cfg.zipf_unique_buckets > 0);
 
     let mut rng = thread_rng();
@@ -670,7 +670,10 @@ fn synthetic_inputs(cfg: &config::Config) -> Vec<(Vec<bool>, usize)> {
         .map(|_| {
             (
                 sample_bits(cfg.data_bits.unwrap_or(0)),
-                rng.gen_range(0..cfg.hist_buckets),
+                cfg.hist_blocks()
+                    .iter()
+                    .map(|&size| rng.gen_range(0..size))
+                    .collect(),
             )
         })
         .collect()
@@ -679,19 +682,19 @@ fn synthetic_inputs(cfg: &config::Config) -> Vec<(Vec<bool>, usize)> {
 fn generate_reports(
     cfg: &config::Config,
     mastic: &MasticHistogram,
-    inputs: Vec<(Vec<bool>, usize)>,
+    inputs: Vec<(Vec<bool>, Vec<usize>)>,
 ) -> Vec<PlaintextReport> {
     assert!(!inputs.is_empty());
 
     let reports = inputs
         .into_par_iter()
-        .map(|(alpha, bucket)| {
+        .map(|(alpha, buckets)| {
             let mut rng = thread_rng();
             let nonce = rng.gen::<[u8; 16]>();
 
             match cfg.mode {
                 Mode::WeightedHeavyHitters { .. } | Mode::AttributeBasedMetrics { .. } => {
-                    let beta = mastic.encode_measurement(&bucket).unwrap();
+                    let beta = mastic.encode_measurement(&buckets).unwrap();
 
                     let (key_0, key_1) = VidpfKey::gen(&alpha, &beta);
 
@@ -748,6 +751,10 @@ fn generate_reports(
                     let chunk_length =
                         histogram_chunk_length(mastic.input_len(), Mode::PlainMetrics);
                     let prio3 = Prio3::new_histogram(2, mastic.input_len(), chunk_length).unwrap();
+                    // Prio3's histogram has a single block.
+                    let [bucket] = buckets[..] else {
+                        panic!("plain metrics supports a single histogram block");
+                    };
                     let (public_share, input_shares) = prio3.shard(&bucket, &nonce).unwrap();
 
                     PlaintextReport::Prio3 {
@@ -803,7 +810,7 @@ async fn reset_servers(
 ) -> io::Result<()> {
     let req = ResetRequest {
         verify_key: *verify_key,
-        hist_buckets: cfg.hist_buckets,
+        hist_blocks: cfg.hist_blocks(),
     };
     let request = request_sizes(bench, &req);
     let resp_0 = client_0.reset(long_context(), req.clone());
@@ -1253,9 +1260,18 @@ async fn run_level_last(
             .collect();
     }
     let encoder = cfg.dataset.as_ref().map(|d| geo::encoder(&d.encoding));
+    // With weights other than `constant`, also print each cell's non-empty buckets by name, one
+    // line per block of `beta`.
+    let blocks = cfg
+        .dataset
+        .as_ref()
+        .filter(|d| d.weights != [config::Weight::Constant])
+        .map(|d| d.blocks());
     for res in &final_values {
         let bits = mastic::bits_to_bitstring(&res.path);
-        if res.value[mastic.input_len() - 1] > Field128::from(0) {
+        // The counter (the last element) is the number of clients; the buckets before it are
+        // `beta`. Checking the counter keeps cells whose last bucket happens to be empty.
+        if res.value[mastic.input_len()] > Field128::from(0) {
             match &encoder {
                 Some(encoder) => {
                     let (lat, lon) = encoder.decode(&res.path);
@@ -1269,6 +1285,19 @@ async fn run_level_last(
                     );
                 }
                 None => println!("Value ({}) \t Count: {:?}", bits, res.value),
+            }
+            if let Some(blocks) = &blocks {
+                let mut values = res.value.iter();
+                for (name, labels) in blocks {
+                    let buckets = labels
+                        .iter()
+                        .zip(values.by_ref())
+                        .map(|(label, &v)| (label, u128::from(v)))
+                        .filter(|&(_, v)| v > 0)
+                        .map(|(label, v)| format!("{label}={v}"))
+                        .collect::<Vec<_>>();
+                    println!("    {name}: {}", buckets.join(", "));
+                }
             }
         }
     }
@@ -1465,6 +1494,16 @@ fn write_export(
         "format": "mastic-crawl/1",
         "dataset": cfg.dataset.as_ref().map(|d| &d.path),
         "encoding": cfg.dataset.as_ref().map(|d| &d.encoding),
+        "weights": cfg.dataset.as_ref().map(|d| &d.weights),
+        "zones": cfg.dataset.as_ref().map(|d| &d.zones),
+        // The blocks of `beta`, in order: they name the first `input_len` entries of each
+        // `value`; the last entry is the count.
+        "blocks": cfg.dataset.as_ref().map(|d| {
+            d.blocks()
+                .into_iter()
+                .map(|(name, labels)| serde_json::json!({"weight": name, "labels": labels}))
+                .collect::<Vec<_>>()
+        }),
         "data_bits": cfg.data_bits,
         "input_len": mastic.input_len(),
         "num_clients": num_clients,
@@ -1509,10 +1548,14 @@ async fn main() -> io::Result<()> {
     .spawn();
 
     println!("- Mode: {:?}", cfg.mode);
-    println!("- Using {:?} histogram buckets", cfg.hist_buckets);
+    println!(
+        "- Using {:?} histogram buckets in blocks {:?}",
+        cfg.hist_buckets,
+        cfg.hist_blocks()
+    );
     println!("- Using {:?} bits", cfg.data_bits);
 
-    let mastic = Mastic::new_histogram(cfg.hist_buckets).unwrap();
+    let mastic = Mastic::new_multi_histogram(cfg.hist_blocks()).unwrap();
     // `--bench-out` reads the per-level candidates and the heavy hitters from the crawl record.
     let mut export = (cfg.export.is_some() || bench.is_some())
         .then(|| CrawlExport::new(&cfg, cfg.export.is_some()));

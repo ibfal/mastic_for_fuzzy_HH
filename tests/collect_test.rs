@@ -19,7 +19,7 @@ fn collect_test_eval_groups() {
     let mut col_1 = KeyCollection::new(mastic.clone(), 1, &seed, Some(strlen), verify_key);
 
     for cstr in &client_strings {
-        let input_beta = mastic.encode_measurement(&2).unwrap();
+        let input_beta = mastic.encode_measurement(&vec![2]).unwrap();
         let (keys_0, keys_1) = vidpf::VidpfKey::gen_from_str(&cstr, &input_beta);
         col_0.add_report_share(ReportShare::Mastic {
             nonce: Default::default(), // ignored by test
@@ -115,7 +115,7 @@ fn collect_test_eval_full_groups() {
     let mut keys = vec![];
     println!("Starting to generate keys");
     for s in &client_strings {
-        let input_beta = mastic.encode_measurement(&1).unwrap();
+        let input_beta = mastic.encode_measurement(&vec![1]).unwrap();
         keys.push(vidpf::VidpfKey::gen_from_str(&s, &input_beta));
     }
     println!("Done generating keys");

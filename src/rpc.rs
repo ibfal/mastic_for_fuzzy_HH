@@ -9,7 +9,8 @@ use crate::{
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResetRequest {
     pub verify_key: [u8; 16],
-    pub hist_buckets: usize,
+    /// Number of buckets of each one-hot block of `beta`.
+    pub hist_blocks: Vec<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

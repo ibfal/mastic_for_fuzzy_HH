@@ -263,9 +263,10 @@ def main():
     ok = True
     if args.mastic_log:
         with open(args.mastic_log) as f:
+            # `Count: [b_0, ..., b_k, n]`: the histogram buckets, then the number of rides n.
             found = {
-                m.group(1): int(m.group(2))
-                for m in re.finditer(r"Value \(([01]+)\).*?Count: \[(\d+)", f.read())
+                m.group(1): int(m.group(2).split(",")[-1])
+                for m in re.finditer(r"Value \(([01]+)\).*?Count: \[([\d, ]+)\]", f.read())
             }
         missing = expected.keys() - found.keys()
         extra = found.keys() - expected.keys()

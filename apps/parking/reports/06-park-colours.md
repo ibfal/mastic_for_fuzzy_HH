@@ -1,0 +1,264 @@
+# P6c: colours by % full, split best bets and street names in "Where to park"
+
+This report is a follow-up to [`05-where-to-park.md`](05-where-to-park.md), on branch `parking`.
+- Nothing is committed.
+- No Rust, config or result file changed.
+- The "Where to park" view still never reads the ground truth.
+- The Occupancy map view is unchanged, except for one sentence in the shared "What's private" note (Decisions needed, item 5).
+
+The design follows the apple-design skill (`.agents/skills/apple-design/SKILL.md`). I checked the colours with the dataviz palette validator.
+
+## Summary
+
+- **New colour rule.** Every cell with hourly counts and 2019 sensor bays is coloured by its **% full at the selected hour** (cars ÷ 2019 sensor bays). This covers heavy cells and last-level candidates alike.
+  - **Red** for "little or no space": 70–80 % light red, 80–90 % medium red, **≥ 90 %** dark red.
+  - **Green** for "space likely", **under 70 %**, in 3 shades where darker means more free space: < 35 %, 35–55 %, 55–70 %.
+  - All the band edges live in one constant, **`OCC_BANDS = [35, 55, 70, 80, 90]`**, which replaces `GREEN_MAX_PCT`.
+  - Cells with hourly counts but no 2019 sensor bays, and every other parking cell, stay transparent grey ("Parking exists here").
+- **Hotspots stay recognisable without colour.**
+  - Heavy cells, whatever their colour, get a **solid near-black outline of 2.5 px**. Other coloured cells have a thin white outline, and the selected cell a blue outline of 4 px.
+  - Tooltips, the area panel and best bets say **"Hotspot"** (Mastic's output) or **"Revealed during the search"** (a last-level candidate).
+  - Every green cell keeps the **white-dot pattern**, with one pattern per shade.
+- **Colour-blind check of the new palette.**
+  - With pure greens, red × green pairs collapsed under deuteranopia (ΔE 1.4).
+  - So I moved the greens slightly towards sea-green and the reds slightly towards vermilion. Every red band × green shade pair now clears the target of 8: **worst deutan 8.1, worst protan 8.2** (full table in Checks §3). Both 3-step ramps pass the ordinal checks.
+- **Best bets** show green cells only, in two groups of up to 3, ranked by free sensor bays:
+  - "Quiet areas with space": non-heavy cells;
+  - "Busy areas with space": hotspots.
+
+  An empty group shows one line, for example "No quiet area with space at 08:30." No hour of the real data has an empty group, so the test forces one.
+- **Street names.**
+  - The prepared data held only segment IDs. Following your choice, the new `cell_streets.py` reads the road-segment descriptions from the already-downloaded 2025 bay file (SHA-256 checked against `raw_manifest.json`) and writes a small committed lookup, `data/cell_streets_<enc>.csv`. Each cell gets its 2 main streets, by bays.
+  - In the Where-to-park view, best bets and the area panel use these names as the title, with the cell ID as secondary text.
+  - Coverage: Morton 56/56, geohash 55/56, H3 72/76. The cells without a name have no 2025 bays.
+- **Items 4a and 4b are explained in their own section below.** Every cell concerned has count 0, and none is a mismatch between the join and the capacity file. **No fix is proposed.**
+- **Screenshots.** `test_frontend.py` now writes to the git-ignored `apps/parking/.run/screenshots/`. `--update-screenshots` overwrites the committed ones in `apps/parking/reports/screenshots/`. I ran it once at the end.
+- **`.gitignore`** now lists `.agents/` and `skills-lock.json`. The latter was already ignored through `**/*.json`, but is now explicit.
+- **All checks pass.**
+  - `build_frontend.py --check`: (a)–(h) as before, (i) is now the band counts, and (j) is new, checking the street names.
+  - `test_frontend.py`: all old checks plus the new ones, including the ground-truth independence test.
+  - The build is deterministic, and a negative test fails as it should.
+
+## Files
+
+| File | Change | Why |
+|---|---|---|
+| `apps/parking/scripts/cell_streets.py` | new | builds the street-name lookup from the raw bay file (hash-checked) |
+| `apps/parking/data/cell_streets_{morton,geohash,h3}.csv` | new (56 / 56 / 76 rows) | `bits,label,streets,bays_2025,segments` for every cell with hourly counts |
+| `apps/parking/scripts/build_frontend.py` | modified | `SCHEMA_VERSION` 3; `streets` per encoding; `OCC_BANDS` and `occ_band()`; `--check` (i) band counts and (j) street names |
+| `apps/parking/frontend/data.js` | regenerated (1,616 → 1,626 KB) | adds `streets`. Every other key is unchanged |
+| `apps/parking/frontend/index.html` | modified | the Where-to-park view: colour rule, hotspot outline, legend, two-group best bets, street-name titles. The Occupancy map is unchanged |
+| `apps/parking/scripts/test_frontend.py` | modified | new band, outline, best-bet and CVD checks; the empty-group test; `--update-screenshots` |
+| `apps/parking/reports/screenshots/*.png` | regenerated (13) | the 7 Where-to-park shots show the new colours; the 6 occupancy shots were regenerated by the same run |
+| `.gitignore` | modified | `.agents/`, `skills-lock.json` |
+| `apps/parking/PARKING_PLAN.md` | modified | §8 P6 row: one sentence on report 06 |
+| `apps/parking/reports/06-park-colours.md` | new | this report |
+
+### The colour rule in detail
+
+- **Function.** `occBand(c, h)` in the page and `occ_band()` / `band_of()` in Python both return:
+  - `null` (grey) if the cell has no 2019 sensor bays;
+  - otherwise one of `g0` (< 35), `g1` (35–55), `g2` (55–70), `r0` (70–80), `r1` (80–90) or `r2` (≥ 90). Values over 100 % also count as `r2`; none occur.
+
+  Green also needs at least 1 free sensor bay, which follows from < 70 %.
+- **Inputs.** Only `e.cells`, `e.last_level`, `e.parking` and `e.streets`. The view still never touches `e.truth`.
+- **Colours** (OKLCH-checked; the map colours are the same in both modes, because the tiles stay light):
+
+| Band | % full | Colour |
+|---|---|---|
+| g0 | < 35 | `#08605a` + white dots |
+| g1 | 35–55 | `#14907f` + white dots |
+| g2 | 55–70 | `#58c0a8` + white dots (slightly larger, since white on this green is 2.1:1) |
+| r0 | 70–80 | `#f08f78` |
+| r1 | 80–90 | `#d4512f` |
+| r2 | ≥ 90 | `#8c2614` |
+| grey | – | `#75746e` at 24 % |
+
+- **Paths.** Each path carries `data-band`, `data-park` (red / green / grey), `data-bits`, and `data-hotspot="1"` on heavy cells. Hotspots are drawn on top of their neighbours, so the thick outline is never covered.
+- **Legend.** It has two headed groups, "Space likely (dotted, under 70 %)" and "Little or no space". Then come a hotspot outline swatch (its tooltip says a hotspot can be green when it has space), the grey row "Parking exists here: no hourly data, or no 2019 sensor bays", and a note: areas without the thick outline are coloured from counts the collector learned during the search.
+- **Best bets.** For each group:
+  - it takes the green cells, sorted by free bays (descending), then % full (ascending), then title, and shows the top 3;
+  - each entry shows a dotted swatch of its shade, the street names as the title, then `[Hotspot]`, the cell ID, % full and sensor bays, with the free bays on the right.
+
+  A click zooms to the cell and opens its panel, as before.
+- **Area panel in the Where-to-park view.** The title is the street names; beneath it are the "Hotspot" or "Revealed during the search" tag and the cell ID, then one line on its status at the hour. The occupancy-map panel keeps "Area morton (35, 25)"; the test checks this.
+
+## How to run
+
+PowerShell, from the repo root:
+
+```powershell
+.\.venv\Scripts\python.exe -I apps\parking\scripts\cell_streets.py                # only after new results; needs raw\
+.\.venv\Scripts\python.exe -I apps\parking\scripts\build_frontend.py              # write data.js
+.\.venv\Scripts\python.exe -I apps\parking\scripts\build_frontend.py --check      # exit 1 on any mismatch
+.\.venv\Scripts\python.exe -I apps\parking\scripts\test_frontend.py               # screenshots -> apps\parking\.run\screenshots
+.\.venv\Scripts\python.exe -I apps\parking\scripts\test_frontend.py --update-screenshots   # overwrite the committed ones
+.\.venv\Scripts\python.exe -m http.server 8000 --directory apps\parking\frontend  # then http://localhost:8000/#view=park&hour=8
+```
+
+## Checks
+
+### 1. Build and `--check`: pass
+
+- **Determinism.** Two builds into the scratchpad and one into the repo give the same SHA-256, `0608ae21ebb4c5d0…` (1,625,957 bytes). A second run of `cell_streets.py` writes byte-identical CSVs.
+- **`--check` passes:** (a)–(h) are unchanged and pass, and (j) passes. Its new lines:
+
+```
+    morton   street names: 56 of 56 cells with hourly counts
+    geohash  street names: 55 of 56 cells with hourly counts
+    h3       street names: 72 of 76 cells with hourly counts
+all checks pass
+```
+
+- **Negative test.** In a copy of `data.js` I renamed "Lonsdale Street" to "Lonsdale Strasse". `--check` then reported "streets differ from apps/parking/data/cell_streets_<enc>.csv" for all 3 encodings and exited with 1.
+
+### 2. Cells per band
+
+The page and `--check` (i) compute these independently, and they agree. **Red** = ≥ 90 / 80–90 / 70–80; **green** = < 35 / 35–55 / 55–70.
+
+| Encoding | Hour | Red total | ≥ 90 | 80–90 | 70–80 | Green total | < 35 | 35–55 | 55–70 | Grey |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Morton | 04:30 | 1 | 0 | 0 | 1 | 41 | 35 | 4 | 2 | 1,305 |
+| | 08:30 | 8 | 1 | 4 | 3 | 34 | 13 | 16 | 5 | 1,305 |
+| | 12:30 | 23 | 7 | 8 | 8 | 19 | 1 | 4 | 14 | 1,305 |
+| | 17:30 | 5 | 1 | 1 | 3 | 37 | 15 | 14 | 8 | 1,305 |
+| geohash | 04:30 | 0 | 0 | 0 | 0 | 44 | 39 | 5 | 0 | 1,641 |
+| | 08:30 | 11 | 2 | 3 | 6 | 33 | 19 | 9 | 5 | 1,641 |
+| | 12:30 | 28 | 7 | 13 | 8 | 16 | 1 | 5 | 10 | 1,641 |
+| | 17:30 | 9 | 1 | 3 | 5 | 35 | 13 | 15 | 7 | 1,641 |
+| H3 | 04:30 | 1 | 0 | 0 | 1 | 61 | 53 | 8 | 0 | 966 |
+| | 08:30 | 8 | 0 | 3 | 5 | 54 | 24 | 25 | 5 | 966 |
+| | 12:30 | 32 | 5 | 13 | 14 | 30 | 4 | 10 | 16 | 966 |
+| | 17:30 | 6 | 0 | 2 | 4 | 56 | 23 | 25 | 8 | 966 |
+
+- Red + green is always the number of cells with hourly counts and 2019 sensor bays: 42 / 44 / 62. So grey is constant per encoding.
+- Grey = cells with parking − 42 / 44 / 62.
+
+### 3. Colour vision: every red band × green shade
+
+Machado 2009 at severity 1, OKLab ΔE × 100, read from the page's CSS. The target is ≥ 8, and the floor is 6.
+
+| Red band | Green shade | Normal | Protan | Deutan | Tritan |
+|---|---|---|---|---|---|
+| 70–80 `#f08f78` | < 35 `#08605a` | 36.1 | 23.1 | 33.1 | 37.7 |
+| 70–80 `#f08f78` | 35–55 `#14907f` | 26.8 | **8.2** | 19.2 | 29.8 |
+| 70–80 `#f08f78` | 55–70 `#58c0a8` | 21.4 | 8.8 | **8.1** | 27.8 |
+| 80–90 `#d4512f` | < 35 `#08605a` | 29.1 | 10.0 | 22.0 | 33.6 |
+| 80–90 `#d4512f` | 35–55 `#14907f` | 26.3 | 12.4 | 12.4 | 32.0 |
+| 80–90 `#d4512f` | 55–70 `#58c0a8` | 29.3 | 26.1 | 16.2 | 36.2 |
+| ≥ 90 `#8c2614` | < 35 `#08605a` | 21.1 | 12.7 | 10.0 | 25.2 |
+| ≥ 90 `#8c2614` | 35–55 `#14907f` | 28.3 | 27.0 | 17.2 | 32.1 |
+| ≥ 90 `#8c2614` | 55–70 `#58c0a8` | 38.8 | 41.9 | 30.9 | 42.3 |
+
+- **Worst pairs:** protan 8.2, deutan 8.1, normal 21.1, tritan 25.2.
+- For comparison, the first candidate with pure greens (`#6cc46c #27963a #0e6420`) reached only 1.4 under deutan and 4.7 under protan.
+- Both 3-step ramps pass the dataviz validator's ordinal checks: monotone lightness, steps ≥ 0.06, light end ≥ 2:1.
+- The dots remain the second cue on every green cell.
+
+### 4. Headless test (`test_frontend.py`, Chrome 157): pass
+
+The test fails on any console error, page error, failed request or HTTP status ≥ 400. None occurred.
+
+- **All earlier checks still pass.** These cover the occupancy map's polygons, hatch, panel, ground truth, every crawl level, play, the phone layout, the tabs and URL state.
+- **New checks, per encoding, for all 24 hours:**
+  - the `data-band` sets drawn equal the Python bands, with no untagged path;
+  - every green path's computed fill is `url("#parkFree<n>")` of its own shade, and red and grey use no pattern;
+  - exactly the heavy cells carry `data-hotspot` and a stroke width ≥ 2.5;
+  - both best-bets groups match Python: entries, order, street titles and free counts, plus the empty line whenever Python expects an empty group;
+  - the page's `OCC_BANDS` equals the test's.
+- **Other new checks:**
+  - **Legend:** all 6 band labels, "Space likely", "Hotspot", "thick dark outline", "Parking exists here", "learned during the search" and "no hourly data". The hotspot tooltip says a hotspot "can be green when it has space".
+  - **Hover:** hovering a hotspot shows a tooltip with "Hotspot".
+  - **Clicking a best bet:** the map zooms to ≥ 16 with the cell's centre in view; the panel title equals the street names; the cell ID and the right tag ("Hotspot" / "Revealed during the search") sit beneath; the chart has 24 bars; and the selected path has the 4 px outline. Back in the Occupancy map, a selected heavy cell's panel still reads "Area <label>".
+  - **Ground truth independence:** with every true occupancy replaced by 99999, the bands and both best-bets groups are identical, for 3 encodings at 08:30 and 17:30.
+  - **Empty group:** with every last-level candidate made full in a copy of the data, the quiet group reads "No quiet area with space at 08:30." and the busy group is unchanged.
+  - **Phone (390 px):** no horizontal scroll, the right bands, and all best bets visible.
+
+**Best bets in the screenshots:**
+
+| Encoding | Hour | Quiet areas with space | Busy areas with space (hotspots) |
+|---|---|---|---|
+| Morton | 08:30 | Capel St & William St (34 free), Coventry St (30), Grant St & Sturt St (27) | Franklin St (91), Lonsdale St & Queen St (44), Franklin St & Anthony St (41) |
+| Morton | 17:30 | Coventry St (29), Capel St & William St (27), Grant St & Sturt St (21) | Franklin St (71), Lonsdale St & Queen St (55), Howard St & Queensberry St (33) |
+| geohash | 08:30 | Grant St & Wells St (35), Albert St & Lansdowne St (25), Jeffcott St & King St (21) | Franklin St & A'Beckett St (91), Lonsdale St (44), Jolimont Tce & Charles St (42) |
+| geohash | 17:30 | Albert St & Lansdowne St (27), Grant St & Wells St (20), Lonsdale St & Queen St (18) | Franklin St & A'Beckett St (71), Lonsdale St (55), Jolimont Tce & Charles St (35) |
+| H3 | 08:30 | Chetwynd St & Victoria St (47), Albert St & Eades St (34), Coventry St & Wells St (30) | A'Beckett St & Franklin St (96), Franklin St & A'Beckett St (45), Capel St & Queensberry St (44) |
+| H3 | 17:30 | Coventry St & Wells St (36), Chetwynd St & Victoria St (30), Albert St & Eades St (28) | A'Beckett St & Franklin St (74), Franklin St & Queen St (60), Lonsdale St & William St (55) |
+
+The page writes the names out in full ("Street", "Terrace"); this table abbreviates them.
+
+**Screenshots** (in `apps/parking/reports/screenshots/`):
+- `park_morton_0830.png`, `park_morton_1730.png`;
+- `park_geohash_0830.png`, `park_geohash_1730.png`;
+- `park_h3_0830.png`, `park_h3_1730.png`;
+- `phone_park_morton_0830.png`.
+
+I looked at all of them. The bands are legible, the dots show on all three greens, the hotspot frames are visible on every shade, and the legend covers no coloured cell. On the darkest green the black outline has less contrast, but it is still clear.
+
+### 5. No protocol, config or result changes: pass
+
+`git status --short -- src tests Cargo.toml apps/parking/results` is empty. `git check-ignore` confirms that `.agents/…` and `skills-lock.json` are ignored by the new lines.
+
+## Items 4a and 4b: explained, not changed
+
+**(a) Why 55 cells with hourly data, not 56, for geohash, and 72, not 76, for H3.** Those counts include only cells with parking. Some last-level candidates lie in **no parking cell at all**: no 2025 bay and no 2019 sensor. They all have count 0:
+- geohash, 1 cell: `r1r0fuf[1]`;
+- H3, 4 cells: `8abe63544acffff`, `8abe63562aaffff`, `8abe63562ac7fff`, and the non-cell `8abe6356347ffff`. The non-cell has H3 digit 7 and no region, so it isn't drawn.
+
+The crawl evaluates every child of a heavy region, including children that contain no parking. These candidates are revealed (all zeros) but not drawn.
+
+**(b) Cells with hourly counts but no 2019 sensor bays: Morton 14, geohash 11, H3 10.** **All of them are zero-count candidates.** Every one has count 0, and every one has 2025 bays but no active 2019 marker. This is **not a mismatch** between the road-segment join and the capacity file. It follows from where each bay is placed:
+- `capacity.py` places every 2019 marker at its **segment's mean location**, the same point the reports use (§3, join 2c; D4);
+- it counts 2025 bays at **their own coordinates**.
+
+Capacity and reports use the same placement, so a cell's counts and its sensor capacity are always consistent. There are two cases:
+
+| Case | Morton | geohash | H3 | Examples |
+|---|---|---|---|---|
+| The cell holds bays of a segment whose sensors (and so all its reports) sit at the segment's mean point in a **neighbouring cell** | 10 | 8 | 9 | Morton (31, 28): 15 bays of segment 20009 (Lonsdale St between Elizabeth St and Queen St), whose 17 markers sit in Morton (31, 29). Morton (18, 31): 6 bays of segment 22051 (Kavanagh St), whose 41 markers sit in Morton (19, 31). H3 `8abe63545987fff`: 14 bays of segment 21382 (William St), whose 32 markers sit in `8abe635459a7fff` |
+| The cell's segments had **no 2019 sensors** | 4 | 3 | 1 | Morton (41, 17): Queensberry St between Errol St and Curzon St, 14 bays. geohash `r1r0fsf[0]`: A'Beckett St between Wills St and William St, 16 bays, and another segment with 10 bays, neither with 2019 sensors. H3 `8abe63563987fff`: Linlithgow Ave, 46 bays |
+
+No fix is proposed. Placing 2025 bays at segment means too would be a different design choice, not a bug fix, and the plan (§3) states the segment-mean placement on purpose.
+
+## Decisions needed
+
+1. **The green sub-band edges 35 / 55 are my choice.** You specified only 70 / 80 / 90 and "2–3 shades". They are in `OCC_BANDS`, so they are easy to change.
+2. **Hue shift for colour safety.** The greens are sea-green (`#58c0a8 → #08605a`) and the reds lean vermilion. Without this shift, red × green pairs fell to ΔE 1.4 under deuteranopia. Is that look acceptable, or do you want pure greens with the dots alone as the cue?
+3. **What the names describe.** The names come from 2025 bays inside the cell, while a cell's counts come from 2019 sensors at segment means (item 4b). So for a few cells the title can name a street whose sensors are counted in the next cell. The alternative is to name cells by their 2019 segments (the capacity file's `segments` column with the same descriptions), which matches the counts but not the physical cell. Which do you prefer?
+4. **Hotspots are mostly green.** For most of the day hotspots are green, so the busy group is never empty in this data. At 12:30, 23 / 28 / 32 cells are red. Fine as is?
+5. **One shared sentence changed.** The note under "What's private" now ends "…uses their hourly counts to colour the areas without a hotspot outline". It previously said "…for the green areas". This panel is shared, so it is the only text change visible in the Occupancy map view. Revert it if that view must stay byte-identical.
+6. **The occupancy screenshots were regenerated too.** `--update-screenshots` rewrote all 13 committed screenshots. The 6 occupancy ones differ only in tile rendering and, on the phone page, in that one note. Commit all 13, or restore those 6 from report 05's run?
+
+## What to commit
+
+Report 05 (P6b) is still uncommitted, so it is listed here too. Not included: `.agents/`, `skills-lock.json` (both now ignored), `apps/parking/.run/` (scratch screenshots, ignored) and `__pycache__/`.
+
+```powershell
+git add .gitignore `
+        apps/parking/PARKING_PLAN.md `
+        apps/parking/scripts/cell_streets.py `
+        apps/parking/scripts/build_frontend.py `
+        apps/parking/scripts/test_frontend.py `
+        apps/parking/data/cell_streets_morton.csv `
+        apps/parking/data/cell_streets_geohash.csv `
+        apps/parking/data/cell_streets_h3.csv `
+        apps/parking/frontend/index.html `
+        apps/parking/frontend/data.js `
+        apps/parking/reports/05-where-to-park.md `
+        apps/parking/reports/06-park-colours.md `
+        apps/parking/reports/screenshots/morton_1130.png `
+        apps/parking/reports/screenshots/geohash_1130.png `
+        apps/parking/reports/screenshots/h3_1130.png `
+        apps/parking/reports/screenshots/morton_1130_cell_truth.png `
+        apps/parking/reports/screenshots/morton_crawl_level6.png `
+        apps/parking/reports/screenshots/phone_morton_1130.png `
+        apps/parking/reports/screenshots/park_morton_0830.png `
+        apps/parking/reports/screenshots/park_morton_1730.png `
+        apps/parking/reports/screenshots/park_geohash_0830.png `
+        apps/parking/reports/screenshots/park_geohash_1730.png `
+        apps/parking/reports/screenshots/park_h3_0830.png `
+        apps/parking/reports/screenshots/park_h3_1730.png `
+        apps/parking/reports/screenshots/phone_park_morton_0830.png
+```
+
+Commit message: `P6b/P6c: "Where to park" view, coloured by % full (OCC_BANDS), hotspot outlines, quiet/busy best bets, street names`

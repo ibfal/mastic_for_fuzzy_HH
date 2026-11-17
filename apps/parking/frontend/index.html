@@ -4,122 +4,164 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Private Parking Map</title>
-<meta name="description" content="Melbourne CBD street parking on Friday 11 October 2019: occupancy of the busy areas found privately with Mastic heavy hitters (drivers' phones as clients). Reads saved results only.">
+<meta name="description" content="Melbourne CBD street parking on Friday 11 October 2019: occupancy of the busy areas found privately with Mastic heavy hitters (drivers' phones as clients), and where free spaces are likely. Reads saved results only.">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"
       integrity="sha512-Zcn6bjR/8RZbLEpLIeOwNtzREBAJnUKESxces60Mpoj+2okopSAcSUIUOseddDm0cxnGQzxIR7vJgsLZbdLE3w=="
       crossorigin="anonymous" referrerpolicy="no-referrer">
 <style>
 :root {
   color-scheme: light;
-  --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f0efec;
+  --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f0efec; --surface-3: #e7e6e1;
   --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
-  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.12);
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
   --accent: #6250d6; --truth: #eb6834; --critical: #d03b3b;
   --s0: #b7d3f6; --s1: #6da7ec; --s2: #2a78d6; --s3: #1c5cab; --s4: #0d366b;
   --bar: #2a78d6; --bar-sel: #0d366b; --nocap: #c3c2b7;
-  --banner: #fff4e5; --banner-ink: #6b3a00;
+  --banner: rgba(255,244,229,0.88); --banner-ink: #6b3a00;
+  /* Where to park, by % full (OCC_BANDS): green < 70 % (darker = more free: g0 < 35, g1 35-55, g2 55-70),
+     red >= 70 % (r0 70-80, r1 80-90, r2 >= 90); grey = parking exists, no hourly data. Validated with the
+     dataviz validator: both ramps ordinal-pass; worst red x green CVD distance 8.1 (deutan), 8.2 (protan).
+     Drawn on the OSM tiles, which stay light in dark mode, so the map colours are the same in both modes. */
+  --pg0: #08605a; --pg1: #14907f; --pg2: #58c0a8;
+  --pr0: #f08f78; --pr1: #d4512f; --pr2: #8c2614;
+  --hotspot-edge: #111111; --park-grey: #75746e;
+  /* materials (translucent chrome) and the segmented control */
+  --material: rgba(252,252,251,0.72); --material-strong: rgba(252,252,251,0.86);
+  --track: rgba(118,118,128,0.14); --thumb: #ffffff; --tint: #2a78d6;
+  --shadow-s: 0 1px 2px rgba(0,0,0,.08); --shadow-l: 0 10px 30px rgba(0,0,0,.14), 0 1px 3px rgba(0,0,0,.10);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #262624;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #262624; --surface-3: #31312e;
     --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
-    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.12);
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
     --accent: #9085e9; --truth: #d95926;
     --bar: #3987e5; --bar-sel: #cde2fb;
-    --banner: #3a2a12; --banner-ink: #ffd9a8;
+    --banner: rgba(58,42,18,0.88); --banner-ink: #ffd9a8;
+    --material: rgba(26,26,25,0.72); --material-strong: rgba(26,26,25,0.86);
+    --track: rgba(118,118,128,0.26); --thumb: #46463f; --tint: #3987e5;
+    --shadow-s: 0 1px 2px rgba(0,0,0,.4); --shadow-l: 0 10px 30px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.4);
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --page: #0d0d0d; --surface: #1a1a19; --surface-2: #262624;
+  --page: #0d0d0d; --surface: #1a1a19; --surface-2: #262624; --surface-3: #31312e;
   --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
-  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.12);
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
   --accent: #9085e9; --truth: #d95926;
   --bar: #3987e5; --bar-sel: #cde2fb;
-  --banner: #3a2a12; --banner-ink: #ffd9a8;
+  --banner: rgba(58,42,18,0.88); --banner-ink: #ffd9a8;
+  --material: rgba(26,26,25,0.72); --material-strong: rgba(26,26,25,0.86);
+  --track: rgba(118,118,128,0.26); --thumb: #46463f; --tint: #3987e5;
+  --shadow-s: 0 1px 2px rgba(0,0,0,.4); --shadow-l: 0 10px 30px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.4);
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; }
 body {
   background: var(--page); color: var(--ink);
-  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 0.875rem/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+  font-optical-sizing: auto; -webkit-font-smoothing: antialiased;
   display: flex; flex-direction: column;
 }
-header { padding: 10px 16px 8px; border-bottom: 1px solid var(--border); background: var(--surface); }
-header h1 { margin: 0; font-size: 18px; line-height: 1.3; }
-header p { margin: 2px 0 0; color: var(--ink-2); max-width: 980px; }
-header .facts { font-size: 13px; }
+header { padding: 0.75rem 1rem 0.5rem; background: var(--surface); }
+header h1 { margin: 0; font-size: 1.25rem; line-height: 1.15; font-weight: 700; letter-spacing: -0.02em; }
+header p { margin: 0.25rem 0 0; color: var(--ink-2); max-width: 980px; }
+header .facts { font-size: 0.8125rem; letter-spacing: 0.005em; }
 .controls {
-  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
-  padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 10;
+  display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center;
+  padding: 0.5rem 1rem; background: var(--material);
+  -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 0 0.5px 0 var(--border);
 }
-.seg { display: inline-flex; border: 1px solid var(--axis); border-radius: 8px; overflow: hidden; }
+/* segmented control: a track with a raised thumb on the selected item */
+.seg { display: inline-flex; padding: 2px; gap: 2px; background: var(--track); border-radius: 9px; }
 .seg button {
-  border: 0; background: transparent; color: var(--ink); padding: 6px 12px; font: inherit; cursor: pointer;
-  min-height: 32px;
+  border: 0; background: transparent; color: var(--ink); padding: 0.3125rem 0.75rem; font: inherit; font-weight: 500;
+  cursor: pointer; min-height: 30px; border-radius: 7px; letter-spacing: 0.005em;
+  transition: background-color 200ms ease, box-shadow 200ms ease, transform 100ms ease-out;
 }
-.seg button + button { border-left: 1px solid var(--axis); }
-.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); font-weight: 600; }
-.hourbox { display: flex; align-items: center; gap: 8px; flex: 1 1 280px; min-width: 240px; }
-.hourbox input[type=range] { flex: 1; accent-color: var(--s3); }
+.seg button[aria-pressed="true"], .seg button[aria-selected="true"] {
+  background: var(--thumb); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 0 0 0.5px rgba(0,0,0,.05);
+}
+.seg button:active { transform: scale(0.97); }
+.seg button:focus-visible, .btn:focus-visible, .bet:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
+.hourbox { display: flex; align-items: center; gap: 0.5rem; flex: 1 1 280px; min-width: 240px; }
+.hourbox input[type=range] { flex: 1; accent-color: var(--tint); }
 #hourLabel { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 46px; }
 .btn {
-  border: 1px solid var(--axis); background: var(--surface); color: var(--ink); border-radius: 8px;
-  padding: 5px 10px; font: inherit; cursor: pointer; min-height: 32px;
+  border: 0; background: var(--track); color: var(--ink); border-radius: 8px;
+  padding: 0.3125rem 0.625rem; font: inherit; font-weight: 500; cursor: pointer; min-height: 30px;
+  transition: background-color 150ms ease, transform 100ms ease-out;
 }
-.btn:hover, .seg button:hover:not([aria-pressed="true"]) { background: var(--surface-2); }
+#play { width: 32px; height: 32px; padding: 0; border-radius: 50%; }
+.btn:hover, .seg button:hover:not([aria-pressed="true"]):not([aria-selected="true"]) { background: var(--surface-3); }
+.btn:active { transform: scale(0.97); }
 .toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
-.toggle input { width: 16px; height: 16px; margin: 0; }
+.toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--tint); }
+.toggle.off { opacity: 0.45; cursor: not-allowed; }
 main { flex: 1; display: flex; min-height: 0; }
-#mapwrap { position: relative; flex: 1; min-width: 0; }
+#mapwrap { position: relative; flex: 1; min-width: 0; isolation: isolate; }
 #map { position: absolute; inset: 0; background: var(--surface-2); }
 #banner {
   position: absolute; z-index: 800; top: 10px; left: 50%; transform: translateX(-50%);
   background: var(--banner); color: var(--banner-ink); border: 1px solid var(--truth);
-  border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; max-width: calc(100% - 120px);
-  text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.15);
+  -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%);
+  border-radius: 10px; padding: 6px 12px; font-size: 0.8125rem; font-weight: 600; max-width: calc(100% - 120px);
+  text-align: center; box-shadow: var(--shadow-s);
 }
 aside {
   width: 390px; flex: none; overflow-y: auto; background: var(--surface);
-  border-left: 1px solid var(--border); padding: 4px 16px 16px;
+  box-shadow: -0.5px 0 0 var(--border); padding: 4px 16px 16px;
 }
-aside section { padding: 12px 0; border-bottom: 1px solid var(--border); }
+aside section { padding: 12px 0; border-bottom: 0.5px solid var(--border); }
 aside section:last-child { border-bottom: 0; }
-aside h2 { font-size: 15px; margin: 0 0 6px; }
-aside h3 { font-size: 13px; margin: 10px 0 4px; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; }
+aside h2 { font-size: 1rem; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.01em; }
+aside h3 { font-size: 0.75rem; margin: 10px 0 4px; color: var(--ink-2); text-transform: uppercase; letter-spacing: .05em; }
 .hint { color: var(--muted); }
 .kv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0; }
-.kv div { background: var(--surface-2); border-radius: 8px; padding: 6px 8px; }
-.kv b { display: block; font-size: 20px; line-height: 1.2; }
-.kv span { font-size: 12px; color: var(--ink-2); }
+.kv div { background: var(--surface-2); border-radius: 10px; padding: 6px 8px; }
+.kv b { display: block; font-size: 1.25rem; line-height: 1.2; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.kv span { font-size: 0.75rem; color: var(--ink-2); letter-spacing: 0.01em; }
 .chart svg { width: 100%; height: auto; display: block; }
-.chart .readout { min-height: 20px; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.chart .readout { min-height: 20px; font-size: 0.8125rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .chart rect.hit { fill: transparent; cursor: pointer; }
-.keyrow { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+.keyrow { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.75rem; color: var(--ink-2); margin-top: 2px; }
 .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
 ul.tight { margin: 4px 0; padding-left: 18px; }
 ul.tight li { margin: 3px 0; }
 .learned li::marker { color: var(--s2); }
 .hidden-list li::marker { color: var(--muted); }
-table.data { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+.note { font-size: 0.75rem; margin: 6px 0 0; color: var(--ink-2); }
+table.data { border-collapse: collapse; width: 100%; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
 table.data th, table.data td { padding: 2px 6px; text-align: right; border-bottom: 1px solid var(--grid); }
 table.data th:first-child, table.data td:first-child { text-align: left; }
 table.data tr.sel td { font-weight: 700; }
-details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-top: 6px; }
+details summary { cursor: pointer; color: var(--ink-2); font-size: 0.8125rem; margin-top: 6px; }
 .levelrow { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 .levelrow input { flex: 1; accent-color: var(--accent); }
 #levelLabel { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 80px; }
-.counter { font-size: 13px; background: var(--surface-2); border-radius: 8px; padding: 6px 8px; }
+.counter { font-size: 0.8125rem; background: var(--surface-2); border-radius: 10px; padding: 6px 8px; }
+/* legend: the larger floating surface, so the thicker material and the deeper shadow */
 .legend {
-  background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px;
-  padding: 8px 10px; font-size: 12px; line-height: 1.5; box-shadow: 0 1px 4px rgba(0,0,0,.15); max-width: 230px;
+  background: var(--material-strong); color: var(--ink); border: 0.5px solid var(--border); border-radius: 12px;
+  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  padding: 8px 10px; font-size: 0.75rem; line-height: 1.45; box-shadow: var(--shadow-l); max-width: 250px;
 }
 .legend b { display: block; margin-bottom: 2px; }
-.legend .row { display: flex; align-items: center; gap: 6px; }
+.legend .row { display: flex; align-items: center; gap: 6px; margin: 1px 0; }
 .legend .sw { width: 16px; height: 12px; margin: 0; flex: none; }
 .legend .extra { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--grid); }
+.legend .ramp { display: inline-flex; flex: none; border-radius: 3px; overflow: hidden; }
+.legend .ramp i { width: 8px; height: 12px; display: block; }
+.legend .info { display: inline-block; width: 14px; height: 14px; line-height: 14px; text-align: center; border-radius: 50%;
+  background: var(--track); font-size: 10px; font-weight: 700; font-style: normal; cursor: help; }
+.legend .note { font-size: 0.6875rem; margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--grid); }
 .legend-toggle { display: none; }
+.legend .hot { width: 16px; height: 12px; flex: none; border: 2.5px solid var(--hotspot-edge); border-radius: 2px; background: rgba(137,135,129,.18); }
+.legend h4 { margin: 6px 0 1px; font-size: 0.6875rem; color: var(--ink-2); text-transform: uppercase; letter-spacing: .05em; }
 .cell-flag {
   background: var(--critical); color: #fff; border: 2px solid #fff; border-radius: 50%;
   width: 22px !important; height: 22px !important; margin: -11px 0 0 -11px !important;
@@ -127,21 +169,67 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
 }
 .cell-flag.nocap { background: #52514e; }
 .not-revealed { fill: url(#hatch); }
-.leaflet-tooltip { font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+/* second, non-colour cue for green (< 70 % full): white dots on every green shade */
+.park-g0 { fill: url(#parkFree0); } .park-g1 { fill: url(#parkFree1); } .park-g2 { fill: url(#parkFree2); }
+.leaflet-park-pane path { transition: fill 250ms ease, fill-opacity 250ms ease, stroke 250ms ease; }
+.leaflet-tooltip { font: 0.75rem/1.4 -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif; border-radius: 8px; }
+/* best bets */
+ol.bets { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
+.bet {
+  width: 100%; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 1px 10px;
+  text-align: left; padding: 8px 10px; border: 0; border-radius: 10px; background: var(--surface-2); color: var(--ink);
+  font: inherit; cursor: pointer; transition: background-color 150ms ease, transform 100ms ease-out;
+}
+.bet:hover { background: var(--surface-3); }
+.bet:active { transform: scale(0.98); }
+.bet[aria-current="true"] { box-shadow: inset 0 0 0 2px var(--ink); }
+.bet .bet-sw { grid-row: span 2; width: 14px; height: 30px; border-radius: 4px; }
+.park-sw-g0, .park-sw-g1, .park-sw-g2 { background: radial-gradient(circle, #fff 1.3px, transparent 1.7px) 0 0 / 6px 6px, var(--pg0); }
+.park-sw-g1 { background-color: var(--pg1); background-image: radial-gradient(circle, #fff 1.3px, transparent 1.7px); }
+.park-sw-g2 { background-color: var(--pg2); background-image: radial-gradient(circle, #fff 1.5px, transparent 1.9px); }
+.tag { display: inline-block; font-size: 0.6875rem; font-weight: 700; padding: 1px 6px; border-radius: 5px; margin-right: 6px;
+  letter-spacing: 0.01em; vertical-align: 1px; }
+.tag.hot { background: var(--hotspot-edge); color: #fff; box-shadow: inset 0 0 0 1px rgba(255,255,255,.28); }
+.tag.found { background: var(--surface-3); color: var(--ink-2); }
+.bet .bet-label { font-weight: 600; overflow-wrap: anywhere; }
+.bet .bet-id { color: var(--muted); }
+.betgroup { margin: 12px 0 0; }
+.betgroup h3 { margin: 0 0 2px; }
+.betgroup .empty { margin: 4px 0 0; font-size: 0.8125rem; }
+.cellid { margin: -2px 0 6px; font-size: 0.75rem; color: var(--muted); }
+.bet .bet-free { grid-row: span 2; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bet .bet-free b { font-size: 1.125rem; letter-spacing: -0.01em; }
+.bet .bet-sub { font-size: 0.75rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 #fatal { padding: 24px; color: var(--critical); font-weight: 600; }
 @media (max-width: 760px) {
   body { height: auto; min-height: 100%; }
-  header h1 { font-size: 16px; }
+  header h1 { font-size: 1.0625rem; }
   header .about { display: none; }
+  #viewSwitch { flex: 1 1 100%; }
+  #viewSwitch button { flex: 1; }
   main { flex-direction: column; }
   #mapwrap { flex: none; height: 62vh; min-height: 340px; }
-  aside { width: auto; border-left: 0; border-top: 1px solid var(--border); overflow: visible; }
-  .legend { max-width: 180px; padding: 6px 8px; }
+  aside { width: auto; box-shadow: 0 -0.5px 0 var(--border); overflow: visible; }
+  .legend { max-width: 200px; padding: 6px 8px; }
   .legend.collapsed .body { display: none; }
   .legend-toggle { display: block; border: 0; background: none; color: inherit; font: inherit; font-weight: 600; padding: 0; cursor: pointer; }
   .legend .title { display: none; }
-  #banner { max-width: calc(100% - 80px); font-size: 12px; }
+  #banner { max-width: calc(100% - 80px); font-size: 0.75rem; }
   .leaflet-bottom.leaflet-left { bottom: 40px; } /* clear of the two-line attribution */
+}
+@media (prefers-reduced-motion: reduce) {
+  *, .leaflet-park-pane path { transition: none !important; }
+  .seg button:active, .btn:active, .bet:active { transform: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .controls, .legend, #banner { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--surface); }
+  #banner { background: var(--surface); }
+}
+@media (prefers-contrast: more) {
+  .controls, .legend { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; border: 1px solid var(--ink); }
+  .seg { box-shadow: inset 0 0 0 1px var(--ink-2); }
+  .seg button[aria-pressed="true"], .seg button[aria-selected="true"] { box-shadow: inset 0 0 0 2px var(--ink); }
+  .bet { box-shadow: inset 0 0 0 1px var(--ink-2); }
 }
 </style>
 </head>
@@ -151,6 +239,19 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
     <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
       <rect width="8" height="8" fill="#898781" fill-opacity="0.10"></rect>
       <line x1="0" y1="0" x2="0" y2="8" stroke="#52514e" stroke-width="1.6" stroke-opacity="0.45"></line>
+    </pattern>
+    <!-- green bands (keep in sync with --pg0..2): white dots on every shade, a little larger on the lightest -->
+    <pattern id="parkFree0" width="7" height="7" patternUnits="userSpaceOnUse">
+      <rect width="7" height="7" fill="#08605a"></rect>
+      <circle cx="3.5" cy="3.5" r="1.5" fill="#ffffff" fill-opacity="0.92"></circle>
+    </pattern>
+    <pattern id="parkFree1" width="7" height="7" patternUnits="userSpaceOnUse">
+      <rect width="7" height="7" fill="#14907f"></rect>
+      <circle cx="3.5" cy="3.5" r="1.5" fill="#ffffff" fill-opacity="0.95"></circle>
+    </pattern>
+    <pattern id="parkFree2" width="7" height="7" patternUnits="userSpaceOnUse">
+      <rect width="7" height="7" fill="#58c0a8"></rect>
+      <circle cx="3.5" cy="3.5" r="1.8" fill="#ffffff"></circle>
     </pattern>
   </defs>
 </svg>
@@ -166,6 +267,10 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
 </header>
 
 <div class="controls" role="toolbar" aria-label="Map controls">
+  <div class="seg" id="viewSwitch" role="tablist" aria-label="View">
+    <button type="button" role="tab" data-view="map" aria-selected="true" aria-controls="map">Occupancy map</button>
+    <button type="button" role="tab" data-view="park" aria-selected="false" aria-controls="map">Where to park</button>
+  </div>
   <div class="seg" id="encSwitch" role="group" aria-label="Encoding"></div>
   <div class="hourbox">
     <button class="btn" id="play" aria-label="Play through the hours" title="Play">▶</button>
@@ -173,8 +278,8 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
     <input type="range" id="hour" min="0" max="23" step="1" value="11" aria-describedby="hourLabel">
     <span id="hourLabel" aria-live="polite">11:30</span>
   </div>
-  <label class="toggle"><input type="checkbox" id="truthToggle"> Ground truth (comparison)</label>
-  <label class="toggle"><input type="checkbox" id="crawlToggle"> What the collector saw</label>
+  <label class="toggle" id="truthWrap"><input type="checkbox" id="truthToggle"> Ground truth (comparison)</label>
+  <label class="toggle" id="crawlWrap"><input type="checkbox" id="crawlToggle"> What the collector saw</label>
 </div>
 
 <main>
@@ -183,6 +288,12 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
     <div id="banner" hidden>Ground truth from the sensors: comparison only, not available in a real deployment</div>
   </div>
   <aside>
+    <section id="bestBets" hidden aria-live="polite">
+      <h2 id="bestBetsTitle">Best bets at 11:30</h2>
+      <p class="hint" style="margin:0">Green areas (under 70 % full) with the most free 2019 sensor bays at this hour.
+        Select one to zoom to it.</p>
+      <div id="betList"></div>
+    </section>
     <section id="crawlPanel" hidden>
       <h2>What the collector saw</h2>
       <p class="hint" style="margin:0">The search runs level by level, from large regions down to cells. At each level
@@ -225,6 +336,17 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
 
   // ---------------------------------------------------------------- helpers
   const ENC_ORDER = ["morton", "geohash", "h3"];
+  const VIEWS = ["map", "park"];
+  // "Where to park": the % full band edges, the only place they are defined. A cell with hourly counts and
+  // 2019 sensor bays is coloured by its % full at the hour:
+  //   < 35 g0 | 35–55 g1 | 55–70 g2   green, darker = more free (needs >= 1 free sensor bay)
+  //   70–80 r0 | 80–90 r1 | >= 90 r2  red, darker = fuller
+  const OCC_BANDS = [35, 55, 70, 80, 90];
+  const BAND_NAMES = ["g0", "g1", "g2", "r0", "r1", "r2"];
+  const BAND_LABELS = [`under ${OCC_BANDS[0]} %`, `${OCC_BANDS[0]}–${OCC_BANDS[1]} %`, `${OCC_BANDS[1]}–${OCC_BANDS[2]} %`,
+    `${OCC_BANDS[2]}–${OCC_BANDS[3]} %`, `${OCC_BANDS[3]}–${OCC_BANDS[4]} %`, `${OCC_BANDS[4]} % or more`];
+  const GREEN_BELOW = OCC_BANDS[2];
+  const BEST_BETS_N = 3; // per group
   const BINS = [ // % full -> colour (one-hue sequential ramp, light = emptier)
     { max: 25, label: "0–25 %", v: "--s0" }, { max: 50, label: "25–50 %", v: "--s1" },
     { max: 75, label: "50–75 %", v: "--s2" }, { max: 90, label: "75–90 %", v: "--s3" },
@@ -234,18 +356,35 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
   const hh = (h) => String(h).padStart(2, "0") + ":30";
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const pctOf = (cars, cap) => cap ? 100 * cars / cap : null;
+  const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function binFor(p, bins) {
+    for (const b of bins) if (p <= b.max && (b.max === 100 || p < b.max)) return b.v;
+    return bins[bins.length - 1].v;
+  }
   function fillFor(p) {
     if (p == null) return css("--nocap");
     if (p > 100) return css("--critical");
-    for (const b of BINS) if (p <= b.max && (b.max === 100 || p < b.max)) return css(b.v);
-    return css("--s4");
+    return css(binFor(p, BINS));
   }
   const polys = (outline) => outline.map((ring) => [ring]); // list of rings -> multipolygon
+  // the Where-to-park band of a cell with hourly counts at hour h, or null (grey: no 2019 sensor bays).
+  // Reads only Mastic's counts (heavy cells, last-level candidates), never the ground truth.
+  function occBand(c, h) {
+    if (!c || !c.capacity) return null;
+    const p = pctOf(c.cars[h], c.capacity);
+    if (p < GREEN_BELOW && c.capacity - c.cars[h] < 1) return null;
+    return BAND_NAMES[OCC_BANDS.filter((edge) => p >= edge).length];
+  }
+  const isGreen = (c, h) => { const b = occBand(c, h); return !!b && b[0] === "g"; };
+  const bandColor = (b) => css("--p" + b); // g0 -> --pg0
+  // street names of a cell (Where-to-park view): "Lonsdale Street & Queen Street", or null
+  const streetsOf = (bits) => { const s = (E().streets || {})[bits]; return s && s.length ? s.join(" & ") : null; };
 
   // ---------------------------------------------------------------- state
-  const state = { enc: "morton", hour: 11, cell: null, cellKind: "mastic", truth: false, crawl: false, level: null };
+  const state = { view: "map", enc: "morton", hour: 11, cell: null, cellKind: "mastic", truth: false, crawl: false, level: null };
   (function readHash() {
     const q = new URLSearchParams(location.hash.slice(1));
+    if (VIEWS.includes(q.get("view"))) state.view = q.get("view");
     if (ENC_ORDER.includes(q.get("enc"))) state.enc = q.get("enc");
     const h = parseInt(q.get("hour"), 10);
     if (h >= 0 && h <= 23) state.hour = h;
@@ -255,12 +394,17 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
   })();
   function writeHash() {
     const q = new URLSearchParams({ enc: state.enc, hour: state.hour });
+    if (state.view !== "map") q.set("view", state.view);
     if (state.truth) q.set("truth", "1");
     if (state.crawl) q.set("crawl", state.level);
     if (state.cell) q.set("cell", state.cell);
     history.replaceState(null, "", "#" + q.toString());
   }
   const E = () => D.encodings[state.enc];
+  const isPark = () => state.view === "park";
+  // the ground-truth and collector layers belong to the occupancy map; the Where-to-park view never uses them
+  const truthOn = () => state.truth && !isPark();
+  const crawlOn = () => state.crawl && !isPark();
 
   // ---------------------------------------------------------------- header facts
   (function facts() {
@@ -279,6 +423,7 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
   }).addTo(map);
   map.createPane("hatch").style.zIndex = 390;
   map.createPane("truth").style.zIndex = 395;
+  map.createPane("park").style.zIndex = 405;
   map.createPane("cells").style.zIndex = 410;
   map.createPane("crawl").style.zIndex = 420;
   const hatchLayer = L.layerGroup().addTo(map);
@@ -286,21 +431,44 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
   const cellLayer = L.featureGroup().addTo(map);
   const flagLayer = L.layerGroup().addTo(map);
   const crawlLayer = L.featureGroup().addTo(map);
-  let cellPolys = [], truthPolys = [];
+  const parkLayer = L.featureGroup();
+  let cellPolys = [], truthPolys = [], parkPolys = [];
+  const showLayer = (layer, on) => { if (on && !map.hasLayer(layer)) layer.addTo(map); else if (!on && map.hasLayer(layer)) map.removeLayer(layer); };
 
-  // legend
+  // legend: one body per view
   const legend = L.control({ position: "bottomleft" });
   legend.onAdd = function () {
     const div = L.DomUtil.create("div", "legend");
     L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
+    const hatchSw = '<span class="sw" style="border:1px solid var(--axis);overflow:hidden"><svg width="16" height="12" style="display:block"><rect width="16" height="12" fill="url(#hatch)"/></svg></span>';
+    const bandSw = (i) => i < 3
+      ? `<span class="sw" style="overflow:hidden"><svg width="16" height="12" style="display:block"><rect width="16" height="12" fill="url(#parkFree${i})"/></svg></span>`
+      : `<span class="sw" style="background:var(--p${BAND_NAMES[i]})"></span>`;
+    const bandRow = (i, extra) => `<div class="row" data-k="legend-${BAND_NAMES[i]}">${bandSw(i)}<span>${BAND_LABELS[i]}${extra || ""}</span></div>`;
+    const hotTip = "Hotspots are the busy areas Mastic output (at least T reports over the day). Their colour shows % full like any other area, so a hotspot can be green when it has space.";
     div.innerHTML =
       '<button class="legend-toggle" aria-expanded="true">Legend ▾</button><div class="body">' +
+      '<div id="legendMap">' +
       '<b class="title">% full at the selected hour</b><span class="hint" style="font-size:11px">cars ÷ 2019 sensor bays</span>' +
       BINS.map((b) => `<div class="row"><span class="sw" style="background:var(${b.v})"></span>${b.label}</div>`).join("") +
       '<div class="row"><span class="sw" style="background:var(--critical)"></span>over 100 % (marked !)</div>' +
       '<div class="row"><span class="sw" style="background:var(--nocap);border:1px dashed #52514e"></span>no capacity data (marked ?)</div>' +
-      '<div class="row"><span class="sw" style="border:1px solid var(--axis);overflow:hidden"><svg width="16" height="12" style="display:block"><rect width="16" height="12" fill="url(#hatch)"/></svg></span><span>not revealed: below threshold, <i>not</i> empty</span></div>' +
-      '<div class="extra" id="legendExtra"></div></div>';
+      `<div class="row">${hatchSw}<span>not revealed: below threshold, <i>not</i> empty</span></div>` +
+      '<div class="extra" id="legendExtra"></div></div>' +
+      '<div id="legendPark" hidden>' +
+      '<b class="title">Where to park at <span id="legendHour">11:30</span></b>' +
+      '<span class="hint" style="font-size:11px">% full = cars ÷ 2019 sensor bays</span>' +
+      `<h4>Space likely (dotted, under ${GREEN_BELOW} %)</h4>` +
+      bandRow(0, " · most free") + bandRow(1) + bandRow(2) +
+      '<h4>Little or no space</h4>' +
+      bandRow(3) + bandRow(4) + bandRow(5, " · full") +
+      `<div class="row" data-k="legend-hotspot" title="${esc(hotTip)}" style="margin-top:4px"><span class="hot"></span>` +
+      `<span><b style="display:inline">Hotspot</b> (thick dark outline): a busy area Mastic output <i class="info" role="img" aria-label="${esc(hotTip)}">i</i></span></div>` +
+      '<div class="row" data-k="legend-grey"><span class="sw" style="background:rgba(117,116,110,.26);border:1px solid rgba(80,79,75,.7)"></span><span>Parking exists here: no hourly data, or no 2019 sensor bays</span></div>' +
+      '<div class="note">Areas without the thick outline are coloured from hourly counts the Mastic collector learned during the search ' +
+      '(cells evaluated at the last level, below the threshold): Mastic\'s design reveals them anyway. Grey means “no hourly data”, not “full”.</div>' +
+      '</div></div>';
     const btn = div.querySelector(".legend-toggle");
     btn.addEventListener("click", () => {
       div.classList.toggle("collapsed");
@@ -311,11 +479,14 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
     return div;
   };
   legend.addTo(map);
-  function updateLegendExtra() {
+  function updateLegend() {
+    document.getElementById("legendMap").hidden = isPark();
+    document.getElementById("legendPark").hidden = !isPark();
+    document.getElementById("legendHour").textContent = hh(state.hour);
     const el = document.getElementById("legendExtra");
     const parts = [];
-    if (state.truth) parts.push('<div class="row"><span class="sw" style="border:1.5px dashed var(--truth);background:transparent"></span>ground truth cell (sensors)</div>');
-    if (state.crawl) parts.push('<div class="row"><span class="sw" style="border:2px solid var(--accent)"></span>crawl region kept</div>' +
+    if (truthOn()) parts.push('<div class="row"><span class="sw" style="border:1.5px dashed var(--truth);background:transparent"></span>ground truth cell (sensors)</div>');
+    if (crawlOn()) parts.push('<div class="row"><span class="sw" style="border:2px solid var(--accent)"></span>crawl region kept</div>' +
       '<div class="row"><span class="sw" style="border:2px dashed var(--ink-2);background:rgba(137,135,129,.22)"></span>crawl region pruned</div>');
     el.innerHTML = parts.join("");
     el.hidden = !parts.length;
@@ -348,6 +519,7 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
       poly.on("click", (ev) => { L.DomEvent.stopPropagation(ev); selectCell(t.bits, "truth"); });
       return poly;
     });
+    buildPark();
     if (fit) {
       // keep every cell clear of the legend (bottom left)
       const lg = legend.getContainer();
@@ -355,30 +527,56 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
       map.fitBounds(cellLayer.getBounds(), { paddingTopLeft: [left, 24], paddingBottomRight: [24, 24], maxZoom: 16 });
     }
     setupCrawlSlider();
+    applyView();
     restyle();
   }
 
+  // which layers and controls each view shows; switching views keeps the map where it is
+  function applyView() {
+    const park = isPark();
+    showLayer(cellLayer, !park); showLayer(flagLayer, !park); showLayer(truthLayer, !park);
+    showLayer(crawlLayer, !park);
+    showLayer(hatchLayer, !park && !state.crawl);  // the crawl regions show what was revealed: no hatch meanwhile
+    showLayer(parkLayer, park);
+    for (const [id, wrap] of [["truthToggle", "truthWrap"], ["crawlToggle", "crawlWrap"]]) {
+      document.getElementById(id).disabled = park;
+      const w = document.getElementById(wrap);
+      w.classList.toggle("off", park);
+      w.title = park ? "Available in the Occupancy map view" : "";
+    }
+    document.getElementById("crawlPanel").hidden = !crawlOn();
+    document.getElementById("bestBets").hidden = !park;
+    viewSw.querySelectorAll("button").forEach((b) => {
+      const on = b.dataset.view === state.view;
+      b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1;
+    });
+    document.getElementById("map").setAttribute("aria-label", park
+      ? "Map: where to park (red hotspots, green space likely, grey parking exists)" : "Map of heavy parking cells");
+  }
+
   function restyle() {
-    const h = state.hour, dim = state.crawl;
+    const h = state.hour, dim = crawlOn();
     flagLayer.clearLayers();
-    for (const poly of cellPolys) {
-      const c = poly.cell, p = c.capacity ? pctOf(c.cars[h], c.capacity) : null;
-      const sel = state.cellKind === "mastic" && state.cell === c.bits;
-      poly.setStyle({
-        fillColor: fillFor(p), fillOpacity: dim ? 0.3 : 0.82,
-        color: sel ? "#0b0b0b" : (p != null && p > 100 ? "#7a1010" : (c.capacity ? "#ffffff" : "#52514e")),
-        weight: sel ? 3.5 : (p != null && p > 100 ? 3 : 1.5),
-        dashArray: c.capacity ? null : "4 3"
-      });
-      if (p == null || p > 100) {
-        L.marker(c.center, {
-          interactive: false, keyboard: false, pane: "markerPane",
-          icon: L.divIcon({ className: "cell-flag" + (p == null ? " nocap" : ""), html: p == null ? "?" : "!", iconSize: [22, 22] })
-        }).addTo(flagLayer);
+    if (!isPark()) {
+      for (const poly of cellPolys) {
+        const c = poly.cell, p = c.capacity ? pctOf(c.cars[h], c.capacity) : null;
+        const sel = state.cellKind === "mastic" && state.cell === c.bits;
+        poly.setStyle({
+          fillColor: fillFor(p), fillOpacity: dim ? 0.3 : 0.82,
+          color: sel ? "#0b0b0b" : (p != null && p > 100 ? "#7a1010" : (c.capacity ? "#ffffff" : "#52514e")),
+          weight: sel ? 3.5 : (p != null && p > 100 ? 3 : 1.5),
+          dashArray: c.capacity ? null : "4 3"
+        });
+        if (p == null || p > 100) {
+          L.marker(c.center, {
+            interactive: false, keyboard: false, pane: "markerPane",
+            icon: L.divIcon({ className: "cell-flag" + (p == null ? " nocap" : ""), html: p == null ? "?" : "!", iconSize: [22, 22] })
+          }).addTo(flagLayer);
+        }
       }
     }
     truthLayer.clearLayers();
-    if (state.truth) {
+    if (truthOn()) {
       for (const poly of truthPolys) {
         const t = poly.cell, p = t.capacity ? pctOf(t.occupied[h], t.capacity) : null;
         const sel = state.cellKind === "truth" && state.cell === t.bits;
@@ -386,11 +584,13 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
         poly.addTo(truthLayer);
       }
     }
+    if (isPark()) restylePark();
     document.getElementById("hour").value = h;
     document.getElementById("hourLabel").textContent = hh(h);
-    document.getElementById("banner").hidden = !state.truth;
-    updateLegendExtra();
+    document.getElementById("banner").hidden = !truthOn();
+    updateLegend();
     renderCellPanel();
+    renderBestBets();
     writeHash();
   }
 
@@ -407,6 +607,118 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
     return `<b>Ground truth</b> (sensors) · ${esc(t.label)} · ${hh(h)}<br>${occ}<br><i>Below the threshold: Mastic did not reveal this area.</i>`;
   }
 
+  // ---------------------------------------------------------------- Where to park
+  // One polygon per cell with parking (2025 bays or 2019 sensor bays). Every cell with hourly counts and
+  // 2019 sensor bays (heavy cells and last-level candidates) is coloured by its % full at the hour (occBand):
+  // green < 70 % in 3 shades (dotted), red >= 70 % in 3 shades. Heavy cells (Mastic's output) also get a
+  // thick dark outline, whatever their colour. Everything else is grey: "Parking exists here".
+  // Inputs: e.cells, e.last_level, e.parking, e.streets. Never e.truth.
+  function buildPark() {
+    parkLayer.clearLayers();
+    const e = E();
+    const heavy = new Map(e.cells.map((c) => [c.bits, c]));
+    const cand = new Map(e.last_level.candidates.filter((c) => c.outline).map((c) => [c.bits, c]));
+    const seen = new Set();
+    parkPolys = [];
+    const add = (bits, outline, base) => {
+      const k = { bits, base, heavy: heavy.get(bits) || null, cand: cand.get(bits) || null, key: null };
+      k.rec = k.heavy || k.cand; // the record with hourly counts, if any
+      const poly = L.polygon(polys(outline), { pane: "park", weight: 0.8, color: "#504f4b", opacity: 0.6, fillColor: css("--park-grey"), fillOpacity: 0.24 });
+      poly.park = k;
+      poly.bindTooltip(() => parkTooltip(k), { sticky: true });
+      poly.on("click", (ev) => {
+        if (k.heavy) { L.DomEvent.stopPropagation(ev); selectCell(bits, "mastic"); }
+        else if (k.cand) { L.DomEvent.stopPropagation(ev); selectCell(bits, "candidate"); }
+      });
+      poly.addTo(parkLayer);
+      parkPolys.push(poly);
+    };
+    for (const p of e.parking) { add(p.bits, p.outline, p); seen.add(p.bits); }
+    for (const c of e.cells) if (!seen.has(c.bits)) add(c.bits, c.outline, null); // (none in the current data)
+  }
+  function restylePark() {
+    const h = state.hour, front = [], hot = [];
+    for (const poly of parkPolys) {
+      const k = poly.park, band = occBand(k.rec, h);
+      const kind = band ? (band[0] === "g" ? "green" : "red") : "grey";
+      const sel = (k.heavy && state.cellKind === "mastic" || k.cand && state.cellKind === "candidate") && state.cell === k.bits;
+      const key = (band || "grey") + "|" + sel;
+      const el = poly.getElement();
+      if (band || sel) (k.heavy ? hot : front).push(poly);
+      if (key === k.key || !el) continue;
+      k.key = key;
+      // outline: selection = blue 4 px; hotspot = near-black 2.5 px; other coloured cells = thin white
+      const edge = sel ? { color: css("--tint"), weight: 4, opacity: 1 }
+        : k.heavy ? { color: css("--hotspot-edge"), weight: 2.5, opacity: 1 }
+        : band ? { color: "#ffffff", weight: 1, opacity: 0.9 } : { color: "#504f4b", weight: 0.8, opacity: 0.6 };
+      if (band) poly.setStyle({ fillColor: bandColor(band), fillOpacity: kind === "green" ? 0.92 : 0.88, ...edge });
+      else poly.setStyle({ fillColor: css("--park-grey"), fillOpacity: 0.24, ...edge });
+      for (const g of ["g0", "g1", "g2"]) el.classList.toggle("park-" + g, band === g);
+      el.setAttribute("data-park", kind);
+      el.setAttribute("data-band", band || "grey");
+      el.setAttribute("data-bits", k.bits);
+      if (k.heavy) el.setAttribute("data-hotspot", "1"); else el.removeAttribute("data-hotspot");
+    }
+    for (const poly of front) poly.bringToFront();
+    for (const poly of hot) poly.bringToFront(); // hotspot outlines on top of their neighbours
+  }
+  function parkTooltip(k) {
+    const h = state.hour, band = occBand(k.rec, h);
+    const name = streetsOf(k.bits);
+    const head = (tag) => `<b>${esc(name || (k.rec || k.base || { label: k.bits }).label)}</b>${name ? ` <span style="opacity:.7">${esc((k.rec || k.base).label)}</span>` : ""}<br>${tag} · ${hh(h)}`;
+    if (band) {
+      const c = k.rec, cars = c.cars[h], p = pctOf(cars, c.capacity);
+      const tag = k.heavy ? "<b>Hotspot</b> (Mastic output)" : "Revealed during the search";
+      return head(tag) + `<br>${fmt(cars)} of ${fmt(c.capacity)} sensor bays taken · <b>${Math.round(p)} % full</b> · <b>${fmt(c.capacity - cars)} free</b>` +
+        `<br><i>${band[0] === "g" ? "Space likely" : (band === "r2" ? "Full or nearly full" : "Little space")}` +
+        (k.heavy ? "" : ": counts the Mastic collector learned during the search (below the threshold, not output)") + ".</i>";
+    }
+    const b = k.base;
+    const bays = b ? [b.capacity ? `${fmt(b.capacity)} 2019 sensor bays` : null, `${fmt(b.bays_2025)} bays in the 2025 bay file`].filter(Boolean).join(" · ") : "";
+    const why = k.rec ? "Hourly counts revealed during the search, but no 2019 sensor bays here: % full unknown."
+      : "No hourly data: below the threshold and not evaluated at the last level of the search.";
+    return `<b>Parking exists here</b>${name ? " · " + esc(name) : ""}<br><span style="opacity:.7">${esc(b ? b.label : k.bits)}</span> · ${bays}<br><i>${why}</i>`;
+  }
+  // green cells (< 70 % full) in two groups, each top BEST_BETS_N by free sensor bays, then % full, then name
+  function bestBets(h) {
+    const e = E();
+    const pick = (list, kind) => list.filter((c) => c.outline && isGreen(c, h))
+      .map((c) => ({ bits: c.bits, kind, label: c.label, name: streetsOf(c.bits), free: c.capacity - c.cars[h], capacity: c.capacity,
+                     pct: pctOf(c.cars[h], c.capacity), band: occBand(c, h), outline: c.outline }))
+      .sort((a, b) => b.free - a.free || a.pct - b.pct || ((a.name || a.label) < (b.name || b.label) ? -1 : (a.name || a.label) > (b.name || b.label) ? 1 : 0))
+      .slice(0, BEST_BETS_N);
+    return { quiet: pick(e.last_level.candidates, "candidate"), busy: pick(e.cells, "mastic") };
+  }
+  function renderBestBets() {
+    if (!isPark()) return;
+    const h = state.hour, bets = bestBets(h);
+    document.getElementById("bestBetsTitle").textContent = `Best bets at ${hh(h)}`;
+    const entry = (b) =>
+      `<li><button type="button" class="bet" data-bits="${esc(b.bits)}" data-kind="${b.kind}" data-band="${b.band}" aria-current="${state.cell === b.bits}">` +
+      `<span class="bet-sw park-sw-${b.band}" aria-hidden="true"></span>` +
+      `<span class="bet-label">${esc(b.name || b.label)}</span>` +
+      `<span class="bet-free"><b>${fmt(b.free)}</b> free</span>` +
+      `<span class="bet-sub">${b.kind === "mastic" ? '<span class="tag hot">Hotspot</span>' : ""}` +
+      `${b.name ? `<span class="bet-id">${esc(b.label)}</span> · ` : ""}${Math.round(b.pct)} % full · ${fmt(b.capacity)} sensor bays</span></button></li>`;
+    const group = (key, title, emptyText) =>
+      `<div class="betgroup" data-group="${key}"><h3>${title}</h3>` +
+      (bets[key].length ? `<ol class="bets">${bets[key].map(entry).join("")}</ol>` : `<p class="hint empty">${emptyText} at ${hh(h)}.</p>`) + "</div>";
+    document.getElementById("betList").innerHTML =
+      group("quiet", "Quiet areas with space", "No quiet area with space") +
+      group("busy", "Busy areas with space", "No busy area (hotspot) with space");
+  }
+  document.getElementById("betList").addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".bet");
+    if (!btn) return;
+    const e = E(), bits = btn.dataset.bits, kind = btn.dataset.kind;
+    const c = kind === "mastic" ? e.cells.find((x) => x.bits === bits) : e.last_level.candidates.find((x) => x.bits === bits);
+    if (!c) return;
+    map.fitBounds(L.latLngBounds(c.outline.flat()), { maxZoom: 17, padding: [48, 48], animate: !reducedMotion() });
+    selectCell(bits, kind);
+    if (window.matchMedia("(max-width: 760px)").matches)
+      document.getElementById("mapwrap").scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" });
+  });
+
   // ---------------------------------------------------------------- crawl layer
   function setupCrawlSlider() {
     const e = E(), levels = e.crawl.map((l) => l.level);
@@ -419,10 +731,9 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
   }
   function drawCrawl() {
     crawlLayer.clearLayers();
-    document.getElementById("crawlPanel").hidden = !state.crawl;
-    // the crawl regions themselves show what was revealed: hide the "not revealed" hatch meanwhile
-    if (state.crawl) map.removeLayer(hatchLayer); else if (!map.hasLayer(hatchLayer)) hatchLayer.addTo(map);
-    if (!state.crawl) return;
+    document.getElementById("crawlPanel").hidden = !crawlOn();
+    showLayer(hatchLayer, !isPark() && !state.crawl);
+    if (!crawlOn()) return;
     const e = E(), N = e.params.N;
     const lvl = e.crawl.find((l) => l.level === state.level);
     const levels = e.crawl.map((l) => l.level);
@@ -459,6 +770,7 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
     if (!state.cell) return null;
     const e = E();
     if (state.cellKind === "truth") return e.truth.find((t) => t.bits === state.cell && !t.heavy) || null;
+    if (state.cellKind === "candidate") return e.last_level.candidates.find((c) => c.bits === state.cell) || null;
     return e.cells.find((c) => c.bits === state.cell) || null;
   }
   function selectCell(bits, kind) { state.cell = bits; state.cellKind = kind; restyle(); }
@@ -498,32 +810,48 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
     const el = document.getElementById("cellPanel");
     const c = findCell();
     if (!c) {
-      el.innerHTML = '<h2>Area details</h2><p class="hint">Click a coloured area on the map to see its 24-hour profile and free spaces.</p>';
+      el.innerHTML = '<h2>Area details</h2><p class="hint">' + (isPark()
+        ? "Click a coloured area on the map, or a best bet, to see its 24-hour profile and free spaces."
+        : "Click a coloured area on the map to see its 24-hour profile and free spaces.") + "</p>";
       return;
     }
-    const h = state.hour, isTruth = state.cellKind === "truth";
+    const h = state.hour, isTruth = state.cellKind === "truth", isCand = state.cellKind === "candidate";
     const cars = isTruth ? c.occupied : c.cars, cap = c.capacity;
     const pcts = cars.map((v) => cap ? pctOf(v, cap) : null);
-    const truthCell = !isTruth && state.truth ? E().truth.find((t) => t.bits === c.bits) : null;
+    const truthCell = !isTruth && truthOn() ? E().truth.find((t) => t.bits === c.bits) : null;
     const truthPcts = isTruth ? null : (truthCell && truthCell.capacity ? truthCell.occupied.map((v) => pctOf(v, truthCell.capacity)) : null);
     const free = cap ? cars.map((v) => cap - v) : null;
     const top3 = free ? free.map((f, i) => [f, i]).sort((a, b) => b[0] - a[0] || a[1] - b[1]).slice(0, 3) : [];
     const p = cap ? pctOf(cars[h], cap) : null;
-    let s = `<h2>${isTruth ? "Ground truth area" : "Area"} ${esc(c.label)}</h2>`;
-    if (isTruth) s += '<p class="hint" style="margin:0">Below the threshold: Mastic did <b>not</b> reveal this area. These sensor counts are shown only for comparison.</p>';
+    let s;
+    if (isPark()) {
+      // Where to park: street names as the title, the cell ID and its kind beneath
+      const name = streetsOf(c.bits), band = occBand(c, h);
+      s = `<h2>${esc(name || "Area " + c.label)}</h2><div class="cellid">` +
+        (isCand ? '<span class="tag found">Revealed during the search</span>' : '<span class="tag hot">Hotspot</span>') +
+        `<span data-k="cell-id">${esc(c.label)}</span></div>`;
+      const status = band ? (band[0] === "g" ? `Space likely at ${hh(h)} (under ${GREEN_BELOW} % full).` : `Little or no space at ${hh(h)} (${GREEN_BELOW} % full or more).`)
+        : "No 2019 sensor bays: % full unknown.";
+      s += `<p class="hint" style="margin:0">${isCand ? `Below the threshold: not output, but its hourly counts were revealed during the search (last level ${E().last_level.level}). `
+        : "A busy area Mastic output (at least T reports over the day). "}${status}</p>`;
+    } else {
+      s = `<h2>${isTruth ? "Ground truth area" : "Area"} ${esc(c.label)}</h2>`;
+      if (isTruth) s += '<p class="hint" style="margin:0">Below the threshold: Mastic did <b>not</b> reveal this area. These sensor counts are shown only for comparison.</p>';
+    }
     s += `<div class="kv"><div><b>${fmt(cap)}</b><span>capacity (2019 sensor bays)</span></div>` +
       `<div><b>${cap ? fmt(cap - cars[h]) : "–"}</b><span>free at ${hh(h)}</span></div>` +
       `<div><b>${p == null ? "–" : Math.round(p) + " %"}</b><span>full at ${hh(h)}${p > 100 ? " · over capacity" : ""}</span></div></div>`;
     if (!cap) s += '<p class="hint">No capacity data for this area: % full and free spaces cannot be estimated.</p>';
     s += `<div class="chart"><div class="hint" style="font-size:12px">% full by hour (cars at h:30 ÷ capacity) — click a bar to select the hour</div>` +
       chartSVG(pcts, truthPcts, h) +
-      `<div class="keyrow"><span><span class="sw" style="background:var(--bar)"></span>${isTruth ? "true occupancy (sensors)" : "Mastic estimate"}</span>` +
+      `<div class="keyrow"><span><span class="sw" style="background:var(--bar)"></span>${isTruth ? "true occupancy (sensors)" : (isCand ? "counts revealed during the search" : "Mastic estimate")}</span>` +
       `<span><span class="sw" style="background:var(--bar-sel)"></span>selected hour</span>` +
       (truthPcts ? '<span><span class="sw" style="background:var(--truth);height:3px;vertical-align:3px"></span>ground truth (sensors)</span>' : "") +
       `</div><div class="readout" id="readout"></div></div>`;
     if (top3.length) s += `<h3>Most free spaces</h3><ul class="tight">` +
       top3.map(([f, i]) => `<li>${hh(i)}: <b>${fmt(f)}</b> free of ${fmt(cap)} (${Math.round(pctOf(cars[i], cap))} % full)</li>`).join("") + "</ul>";
-    if (!isTruth) s += `<p class="hint" style="font-size:12px;margin:6px 0 0">${fmt(c.count)} car-hours over the day (threshold T = ${fmt(E().params.T)}). Free = capacity − cars; ${c.bays_2025 != null ? fmt(c.bays_2025) + " bays in the 2025 bay file." : ""}</p>`;
+    if (isCand) s += `<p class="hint" style="font-size:12px;margin:6px 0 0">${fmt(c.count)} car-hours over the day, below the threshold T = ${fmt(E().params.T)}. Free = capacity − cars; ${fmt(c.bays_2025)} bays in the 2025 bay file.</p>`;
+    else if (!isTruth) s += `<p class="hint" style="font-size:12px;margin:6px 0 0">${fmt(c.count)} car-hours over the day (threshold T = ${fmt(E().params.T)}). Free = capacity − cars; ${c.bays_2025 != null ? fmt(c.bays_2025) + " bays in the 2025 bay file." : ""}</p>`;
     s += `<details><summary>Table view</summary><table class="data"><thead><tr><th>Hour</th><th>Cars</th><th>Free</th><th>% full</th>${truthPcts ? "<th>Truth %</th>" : ""}</tr></thead><tbody>` +
       cars.map((v, i) => `<tr class="${i === h ? "sel" : ""}"><td>${hh(i)}</td><td>${fmt(v)}</td><td>${free ? fmt(free[i]) : "–"}</td><td>${pcts[i] == null ? "–" : pcts[i].toFixed(1)}</td>${truthPcts ? `<td>${truthPcts[i].toFixed(1)}</td>` : ""}</tr>`).join("") +
       "</tbody></table></details>";
@@ -556,16 +884,37 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
       `<li><b>Every individual parking event</b>: which car parked in which bay, and when it arrived or left. Each phone only sends secret-shared reports, and no single server can read them.</li>` +
       `<li><b>Any area below the threshold</b> is not output. Areas inside a region that was pruned are never counted on their own. The map shows them as hatched "not revealed", which does <i>not</i> mean empty.</li></ul>` +
       `<p class="hint" style="font-size:12px;margin:6px 0 0">Note: the search also reveals the totals of the regions it evaluates and then prunes. At the finest level these are ` +
-      `${fmt(last.pruned)} cells just below the threshold whose parent region was heavy. They are not output, but the collector sees their totals (level ${last.level} in “What the collector saw”).</p>`;
+      `${fmt(last.pruned)} cells just below the threshold whose parent region was heavy. They are not output, but the collector sees their totals (level ${last.level} in “What the collector saw”). ` +
+      `The “Where to park” view uses their hourly counts to colour the areas without a hotspot outline.</p>`;
     document.getElementById("showCrawl").addEventListener("click", (ev) => {
       ev.preventDefault();
+      if (isPark()) setView("map");
       const t = document.getElementById("crawlToggle");
       if (!t.checked) t.click();
-      document.getElementById("crawlPanel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+      document.getElementById("crawlPanel").scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "nearest" });
     });
   }
 
   // ---------------------------------------------------------------- controls
+  const viewSw = document.getElementById("viewSwitch");
+  function setView(v) {
+    if (!VIEWS.includes(v)) return;
+    state.view = v;
+    // keep the selection only if the new view draws that cell
+    if (state.cell && (v === "map" && state.cellKind === "candidate" || v === "park" && state.cellKind === "truth")) state.cell = null;
+    applyView();
+    drawCrawl();
+    restyle();
+  }
+  viewSw.querySelectorAll("button").forEach((b) => {
+    b.addEventListener("click", () => setView(b.dataset.view));
+    b.addEventListener("keydown", (ev) => { // arrow keys move between the tabs
+      if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+      const i = VIEWS.indexOf(state.view), j = (i + (ev.key === "ArrowRight" ? 1 : VIEWS.length - 1)) % VIEWS.length;
+      setView(VIEWS[j]);
+      viewSw.querySelector(`[data-view="${VIEWS[j]}"]`).focus();
+    });
+  });
   const sw = document.getElementById("encSwitch");
   for (const k of ENC_ORDER) {
     const b = document.createElement("button");
@@ -597,18 +946,20 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
   });
   const crawlToggle = document.getElementById("crawlToggle");
   crawlToggle.checked = state.crawl;
-  crawlToggle.addEventListener("change", () => { state.crawl = crawlToggle.checked; drawCrawl(); restyle(); });
+  crawlToggle.addEventListener("change", () => { state.crawl = crawlToggle.checked; applyView(); drawCrawl(); restyle(); });
   document.getElementById("level").addEventListener("input", (ev) => { state.level = +ev.target.value; drawCrawl(); });
   document.getElementById("fitLevel").addEventListener("click", () => {
     if (crawlLayer.getLayers().length) map.fitBounds(crawlLayer.getBounds(), { padding: [20, 20] });
   });
   map.on("click", () => { if (state.cell) { state.cell = null; restyle(); } });
 
-  // initial cell from the hash: Mastic cell first, else a below-threshold truth cell (only with truth on)
+  // initial cell from the hash: Mastic cell first, else a below-threshold truth cell (only with truth on, map view),
+  // else a last-level candidate (Where-to-park view)
   if (state.cell) {
     const e = D.encodings[state.enc];
     if (e.cells.some((c) => c.bits === state.cell)) state.cellKind = "mastic";
-    else if (state.truth && e.truth.some((t) => t.bits === state.cell && !t.heavy)) state.cellKind = "truth";
+    else if (state.truth && !isPark() && e.truth.some((t) => t.bits === state.cell && !t.heavy)) state.cellKind = "truth";
+    else if (isPark() && e.last_level.candidates.some((c) => c.bits === state.cell)) state.cellKind = "candidate";
     else state.cell = null;
   }
   const keepCell = state.cell, keepKind = state.cellKind, keepLevel = state.level;
@@ -616,7 +967,8 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-
   if (keepCell) { state.cell = keepCell; state.cellKind = keepKind; }
   if (keepLevel != null) { state.level = keepLevel; setupCrawlSlider(); }
   restyle();
-  window.parkingApp = { state, map, setEncoding, setHour, selectCell }; // used by the headless test
+  // used by the headless test
+  window.parkingApp = { state, map, setEncoding, setHour, selectCell, setView, bestBets, OCC_BANDS, BEST_BETS_N };
 })();
 </script>
 </body>

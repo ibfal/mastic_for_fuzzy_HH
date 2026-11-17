@@ -15,6 +15,13 @@ web server. Per encoding:
           against the heavy cells output;
   crawl   every candidate of every level with its region (the "What the collector saw" layer);
   truth   true occupancy of every sensor cell (comparison layer; not available in a deployment).
+  parking every cell with parking (any 2025 bay or 2019 sensor bay), from the capacity CSV only:
+          outline, 2019 sensor bays, 2025 bays. No occupancy ("Where to park" view, grey layer).
+  last_level  the non-heavy candidates of the crawl's last level with their 24 hourly counts (the
+          export's `value`, revealed during the search) and capacity ("Where to park").
+  streets the main street(s) of every cell with hourly counts, from data/cell_streets_<enc>.csv
+          (cell_streets.py; 2025 bay file road-segment descriptions).
+The "Where to park" inputs (cells, parking, last_level, streets) never read the occupancy CSV.
 
     .\\.venv\\Scripts\\python.exe -I apps\\parking\\scripts\\build_frontend.py            # write data.js
     .\\.venv\\Scripts\\python.exe -I apps\\parking\\scripts\\build_frontend.py --check    # verify, exit 1 on mismatch
@@ -34,7 +41,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script's folder
 import parking_common as pc  # noqa: E402
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 RESULTS = pc.APP / "results"
 FRONTEND = pc.APP / "frontend"
 OUT = FRONTEND / "data.js"
@@ -43,6 +50,12 @@ SUFFIX = ";\n"
 COORD_DIGITS = 7
 NAMES = {"morton": "Morton", "geohash": "geohash", "h3": "H3"}
 OUTLINE_TOL = 1e-9
+# mirrors index.html's OCC_BANDS (% full edges); only for the summary in --check:
+# < 35 g0, 35-55 g1, 55-70 g2 (green, darker = more free), 70-80 r0, 80-90 r1, >= 90 r2 (red)
+OCC_BANDS = (35, 55, 70, 80, 90)
+BAND_NAMES = ("g0", "g1", "g2", "r0", "r1", "r2")
+PARKING_KEYS = ("bits", "label", "capacity", "bays_2025", "center", "outline")
+CANDIDATE_KEYS = ("bits", "label", "count", "cars", "capacity", "bays_2025", "free", "pct", "center", "outline")
 
 
 # --- inputs ------------------------------------------------------------------------------------
@@ -57,6 +70,26 @@ def capacity_path(name):
 
 def occupancy_path(name):
     return pc.GT / f"occupancy_{name}.csv"
+
+
+def streets_path(name):
+    return pc.DATA / f"cell_streets_{name}.csv"
+
+
+def load_streets(name):
+    """{bits: [street, ...]} from the lookup written by cell_streets.py (empty list: no 2025 bays)."""
+    with open(streets_path(name), newline="", encoding="utf-8") as f:
+        return {r["bits"]: [x for x in r["streets"].split("; ") if x] for r in csv.DictReader(f)}
+
+
+def occ_band(cars, capacity):
+    """The Where-to-park colour class at one hour, or None (grey) without 2019 sensor bays."""
+    if not capacity:
+        return None
+    p = 100.0 * cars / capacity
+    if p < OCC_BANDS[2] and capacity - cars < 1:
+        return None
+    return BAND_NAMES[sum(p >= edge for edge in OCC_BANDS)]
 
 
 def load_export(name):
@@ -202,6 +235,37 @@ def build_encoding(name):
         truth.append({"bits": bits, "label": o["label"], "heavy": bits in heavy_bits, "capacity": capacity,
                       "occupied": o["occupied"], "center": centroid_of(outl), "outline": outl})
 
+    enc = pc.encoder(name)
+    parking = []
+    for bits in sorted(cap):
+        r = cap[bits]
+        markers, bays = int(r["markers_2019"]), int(r["bays_2025"])
+        if not (markers or bays):
+            continue
+        outl = computed_outline(name, bits)
+        parking.append({"bits": bits, "label": r["label"], "capacity": markers or None, "bays_2025": bays,
+                        "center": centroid_of(outl), "outline": outl})
+
+    lvl_last = export["levels"][-1]
+    last_level = []
+    for c in sorted((c for c in lvl_last["candidates"] if not c["heavy"]), key=lambda c: c["bits"]):
+        bits = c["bits"]
+        capacity = (int(cap[bits]["markers_2019"]) if bits in cap else 0) or None
+        cars = list(c["value"][:pc.HOURS])
+        outl = outline(c["region"])
+        last_level.append({
+            "bits": bits,
+            "label": cap[bits]["label"] if bits in cap else enc.label(bits),
+            "count": c["count"],
+            "cars": cars,
+            "capacity": capacity,
+            "bays_2025": int(cap[bits]["bays_2025"]) if bits in cap else 0,
+            "free": [capacity - x for x in cars] if capacity else None,
+            "pct": [pct(x, capacity) for x in cars],
+            "center": centroid_of(outl) if outl else None,
+            "outline": outl,
+        })
+
     return {
         "name": NAMES[name],
         "params": {
@@ -220,6 +284,9 @@ def build_encoding(name):
         "cells": cells,
         "crawl": crawl,
         "truth": truth,
+        "parking": parking,
+        "last_level": {"level": lvl_last["level"], "candidates": last_level},
+        "streets": dict(sorted(load_streets(name).items())),
     }
 
 
@@ -292,7 +359,8 @@ def check(path):
         with open(results_path(name), encoding="utf-8") as f:
             export = json.load(f)
         with open(capacity_path(name), newline="", encoding="utf-8") as f:
-            cap = {r["bits"]: int(r["markers_2019"]) for r in csv.DictReader(f)}
+            cap_rows = {r["bits"]: r for r in csv.DictReader(f)}
+        cap = {b: int(r["markers_2019"]) for b, r in cap_rows.items()}
         occ = {}
         with open(occupancy_path(name), newline="", encoding="utf-8") as f:
             for r in csv.DictReader(f):
@@ -376,6 +444,87 @@ def check(path):
                 revealed, kept, revealed - kept, no_region, len(want)):
             fail(f"{name}: privacy totals differ from the export")
 
+        # (g) parking cells = capacity CSV rows with any bay; capacity data only, no occupancy
+        tol = 0.5 * 10 ** -COORD_DIGITS + 1e-12
+        want_park = {b: r for b, r in cap_rows.items() if int(r["markers_2019"]) or int(r["bays_2025"])}
+        park = {c["bits"]: c for c in e.get("parking", [])}
+        if set(park) != set(want_park):
+            fail(f"{name}: parking cells differ from the capacity CSV ({len(park)} vs {len(want_park)})")
+        for bits, c in park.items():
+            r = want_park.get(bits)
+            if tuple(c) != PARKING_KEYS:
+                fail(f"{name} {bits}: parking record keys {tuple(c)} (only capacity fields allowed)")
+            if r is None:
+                continue
+            if (c["capacity"], c["bays_2025"], c["label"]) != (int(r["markers_2019"]) or None, int(r["bays_2025"]), r["label"]):
+                fail(f"{name} {bits}: parking capacity / 2025 bays / label differ from the capacity CSV")
+            if not same_outline(c["outline"], computed_outline(name, bits, exact=True), tol):
+                fail(f"{name} {bits}: parking outline differs from the plaintext encoder's cell")
+
+        # (h) last-level candidates: the non-heavy ones = the export's, hourly counts = value[:24];
+        #     the heavy ones = heavy_hitters (bits and hours)
+        lv_last = export["levels"][-1]
+        ll = e.get("last_level", {})
+        want_c = {c["bits"]: c for c in lv_last["candidates"] if not c["heavy"]}
+        got_c = {c["bits"]: c for c in ll.get("candidates", [])}
+        if ll.get("level") != lv_last["level"] or set(got_c) != set(want_c):
+            fail(f"{name}: last-level candidates differ from the export (level {ll.get('level')}, {len(got_c)} vs {len(want_c)})")
+        hours_equal = 0
+        for bits, c in got_c.items():
+            x = want_c.get(bits)
+            if tuple(c) != CANDIDATE_KEYS:
+                fail(f"{name} {bits}: candidate record keys {tuple(c)}")
+            if x is None:
+                continue
+            if c["cars"] != x["value"][:pc.HOURS] or c["count"] != x["count"]:
+                fail(f"{name} {bits}: candidate hourly counts differ from the export's value")
+            else:
+                hours_equal += 1
+            if sum(c["cars"]) != c["count"] or (len(x["value"]) > pc.HOURS and x["value"][pc.HOURS] != x["count"]):
+                fail(f"{name} {bits}: candidate hours do not sum to the count")
+            capacity = cap.get(bits, 0) or None
+            if c["capacity"] != capacity or c["bays_2025"] != (int(cap_rows[bits]["bays_2025"]) if bits in cap_rows else 0):
+                fail(f"{name} {bits}: candidate capacity {c['capacity']} != capacity CSV {capacity}")
+            if c["free"] != ([capacity - v for v in c["cars"]] if capacity else None) or \
+                    c["pct"] != [round(100.0 * v / capacity, 1) if capacity else None for v in c["cars"]]:
+                fail(f"{name} {bits}: candidate free / pct inconsistent")
+            if (c["outline"] is None) != (not x["region"]) or (
+                    x["region"] and not same_outline(c["outline"], x["region"], tol)):
+                fail(f"{name} {bits}: candidate outline differs from the export region")
+        heavy_last = {c["bits"]: c for c in lv_last["candidates"] if c["heavy"]}
+        if set(heavy_last) != set(want) or any(heavy_last[b]["value"][:pc.HOURS] != want[b]["buckets"]
+                                               for b in want if b in heavy_last):
+            fail(f"{name}: heavy last-level candidates differ from heavy_hitters")
+
+        # (i) summary: hourly-data coverage, and red / green / grey per hour computed here in Python
+        sensor_cells = sum(1 for c in park.values() if c["capacity"])
+        with_park = sum(1 for b in list(got) + list(got_c) if b in park)
+        print(f"    {name:8} last-level candidates: {hours_equal}/{len(want_c)} with hourly counts = export value; "
+              f"hourly data: {len(got)} heavy + {len(got_c)} last-level = {len(got) + len(got_c)} cells "
+              f"({with_park} with parking) of {len(park)} cells with parking ({sensor_cells} with 2019 sensor bays)")
+        coloured = list(got.values()) + [c for c in got_c.values() if c["outline"]]
+        for hr in (4, 8, 12, 17):
+            bands = {b: 0 for b in BAND_NAMES}
+            for c in coloured:
+                b = occ_band(c["cars"][hr], c["capacity"])
+                if b:
+                    bands[b] += 1
+            red, green = sum(bands[b] for b in BAND_NAMES[3:]), sum(bands[b] for b in BAND_NAMES[:3])
+            print(f"    {'':8} {hr:02d}:30 red {red} (>=90 {bands['r2']}, 80-90 {bands['r1']}, 70-80 {bands['r0']}) | "
+                  f"green {green} (<35 {bands['g0']}, 35-55 {bands['g1']}, 55-70 {bands['g2']}) | "
+                  f"grey {len(park) - red - green}")
+
+        # (j) street names = the lookup CSV, with a row for every cell with hourly counts
+        with open(streets_path(name), newline="", encoding="utf-8") as f:
+            st_rows = {r["bits"]: r for r in csv.DictReader(f)}
+        st = e.get("streets", {})
+        if st != {b: [x for x in r["streets"].split("; ") if x] for b, r in st_rows.items()}:
+            fail(f"{name}: streets differ from {pc.relpath(streets_path(name))}")
+        missing = (set(want) | set(want_c)) - set(st_rows)
+        if missing:
+            fail(f"{name}: {len(missing)} cells with hourly counts lack a street-name row (run cell_streets.py)")
+        print(f"    {'':8} street names: {sum(1 for v in st.values() if v)} of {len(st)} cells with hourly counts")
+
         status = "pass" if len(problems) == n0 else "FAIL"
         print(f"    {name:8} {status}: {len(got)} heavy cells (export {len(want)}), {len(truth)} truth cells, "
               f"heavy cells with truth = Mastic hours: {heavy_truth}/{len(want)}, "
@@ -392,7 +541,8 @@ def main():
     args = ap.parse_args()
     if args.check:
         print("checks (b) heavy cells and hour counts = results JSON, (c) capacity / free = CSVs, "
-              "(d) truth = occupancy CSV, (e) outlines, (f) crawl per level:")
+              "(d) truth = occupancy CSV, (e) outlines, (f) crawl per level, (g) parking cells = capacity CSV, "
+              "(h) last-level candidates = export values, (i) Where-to-park bands, (j) street names = lookup CSV:")
         problems = check(args.out)
         for p in problems[:50]:
             print(f"  FAIL {p}")
@@ -405,7 +555,8 @@ def main():
     print(f"wrote {pc.relpath(args.out) if args.out.is_relative_to(pc.REPO) else args.out} ({len(text):,} bytes)")
     for name, e in data["encodings"].items():
         print(f"  {name:8} {len(e['cells'])} heavy cells, {e['privacy']['revealed']} regions revealed, "
-              f"{len(e['truth'])} truth cells, T = {e['params']['T']}, N = {e['params']['N']}")
+              f"{len(e['truth'])} truth cells, {len(e['parking'])} parking cells, "
+              f"{len(e['last_level']['candidates'])} last-level candidates, T = {e['params']['T']}, N = {e['params']['N']}")
 
 
 if __name__ == "__main__":

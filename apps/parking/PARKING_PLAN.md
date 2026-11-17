@@ -122,7 +122,7 @@ Chosen from the data (P1, re-checked on the snapshot data in P2), not copied fro
 | P3 | Mastic | `Weight::HourOfDay` in `dataset.rs` (24 buckets; also 6 and 1), with tests; bucket counts in the driver's `--export`; `scripts/run_app.py` runs the app set per encoding and checks it against the ground truth. **Scope (P3): the parking app is implemented, not benchmarked** |
 | P4 | Mosaic | Melbourne encodings (check whether Mosaic's encoders accept a custom origin, box and prefix); time-window runs; reuse the harness |
 | P5 | both | Runs (Mastic: minutes; Mosaic: one night), evaluation, comparison |
-| P6 | Mastic | Frontend: map with hour slider, occupancy %, estimated free spaces. `apps/parking/frontend/index.html` + `data.js` (built by `scripts/build_frontend.py` from the saved results; the page never starts runs) |
+| P6 | Mastic | Frontend: map with hour slider, occupancy %, estimated free spaces. `apps/parking/frontend/index.html` + `data.js` (built by `scripts/build_frontend.py` from the saved results; the page never starts runs). A "Where to park" view (report 05) adds the cells with space per hour, from the last-level counts revealed during the search; it never uses the ground truth. Report 06: every cell with hourly counts is coloured by % full (green < 70 %, red bands 70/80/90 %), hotspots by a thick outline, best bets split into quiet and busy areas, street names from `data/cell_streets_<enc>.csv` |
  
 The rules from the benchmark spec (C0) apply to every prompt:
 - no git commits, pushes or branch switches;

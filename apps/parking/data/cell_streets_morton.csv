@@ -1,0 +1,57 @@
+bits,label,streets,bays_2025,segments
+001110101110,"morton (18, 31)",Balston Street; Kavanagh Street,28,22051;22053
+001110101111,"morton (19, 31)",Kavanagh Street,22,22051
+001111010100,"morton (30, 24)",Lonsdale Street,33,20013
+001111010101,"morton (31, 24)",Little Lonsdale Street,16,20046
+001111011110,"morton (30, 27)",Little Bourke Street,17,20059
+001111011111,"morton (31, 27)",Lonsdale Street; Queen Street,44,20011;20176
+001111110100,"morton (30, 28)",Queen Street; Little Bourke Street,47,20059;20174;20175
+001111110101,"morton (31, 28)",Queen Street; Lonsdale Street,35,20009;20011;20175;20176
+011000100000,"morton (32, 20)",Jeffcott Street,23,21514
+011000100001,"morton (33, 20)",Batman Street,43,21516
+011000111010,"morton (36, 23)",William Street; Capel Street,26,21392;21393;21404;22659
+011000111011,"morton (37, 23)",Capel Street; William Street,61,21385;21392
+011000111110,"morton (38, 23)",Capel Street; Victoria Street,43,20945;20951;20953;21392
+011000111111,"morton (39, 23)",Capel Street,40,20945
+011001000010,"morton (40, 17)",Errol Street,20,20992
+011001000011,"morton (41, 17)",Queensberry Street,14,20999
+011001001010,"morton (40, 19)",Leveson Street,53,20980
+011001001011,"morton (41, 19)",Leveson Street; Queensberry Street,50,20974;20980;20990;21094;21096
+011001101000,"morton (40, 22)",Howard Street; Queensberry Street,49,20950;20956;20973
+011001101001,"morton (41, 22)",Howard Street; Queensberry Street,40,20950;20973;21105
+011010000110,"morton (34, 25)",A'Beckett Street; Wills Street,22,21524;21527;22652;22653
+011010000111,"morton (35, 25)",Franklin Street,9,21527
+011010001110,"morton (34, 27)",A'Beckett Street; Queen Street,29,21523;21637;21649
+011010001111,"morton (35, 27)",Franklin Street; Anthony Street,38,21634;21637
+011010100000,"morton (32, 28)",Queen Street; Little Lonsdale Street,20,20042;20176
+011010100001,"morton (33, 28)",La Trobe Street,13,20024
+011011011100,"morton (46, 26)",Royal Parade,13,22514
+011011011101,"morton (47, 26)",Royal Parade,24,22513;22514;22608
+100001111100,"morton (14, 38)",Dorcas Street,14,22094
+100001111101,"morton (15, 38)",Coventry Street,41,22103
+100100001110,"morton (18, 35)",Grant Street; Sturt Street,38,22121;22826;22877
+100100001111,"morton (19, 35)",Sturt Street,32,22121
+100100101100,"morton (18, 38)",Wadey Street,27,22090
+100100101101,"morton (19, 38)",Grant Street; St Kilda Road,42,22082;22466
+100111010000,"morton (28, 40)",Flinders Street; Exhibition Street,9,20138;20210
+100111010001,"morton (29, 40)",Exhibition Street; Flinders Lane,10,20123;20139
+101101001100,"morton (26, 50)",Jolimont Terrace,17,21982
+101101001101,"morton (27, 50)",Wellington Parade South; Jolimont Terrace,16,21982;22634
+110000100000,"morton (32, 36)",Russell Street; Little Bourke Street,22,20051;20150;20151
+110000100001,"morton (33, 36)",Lonsdale Street; Russell Street,44,20003;20151
+110000100110,"morton (34, 37)",Lonsdale Street; Exhibition Street,38,20003;20144
+110000100111,"morton (35, 37)",Exhibition Street; Little Lonsdale Street,40,20034;20036;20144;20145
+110000101000,"morton (32, 38)",Bourke Street; Exhibition Street,24,20078;20142
+110000101001,"morton (33, 38)",Exhibition Street; Little Bourke Street,19,20051;20142;20143
+110000101110,"morton (34, 39)",Lonsdale Street,51,20001
+110000101111,"morton (35, 39)",Little Lonsdale Street,16,20034
+110001001010,"morton (40, 35)",Lygon Street,5,20524;20525
+110001001011,"morton (41, 35)",Pelham Street; Lygon Street,41,20526;20527;20528;21557
+110001010110,"morton (46, 33)",Faraday Street,34,20812
+110001010111,"morton (47, 33)",Elgin Street,8,20815
+110010000100,"morton (34, 40)",Spring Street; Little Bourke Street,27,20001;20049;20206
+110010000101,"morton (35, 40)",Spring Street; Lonsdale Street,47,20001;21848
+110010100000,"morton (32, 44)",St Andrews Place,24,21855
+110010100001,"morton (33, 44)",Cathedral Place; Parliament Place,26,21851;21852
+111000001010,"morton (32, 51)",Clarendon Street,22,22622
+111000001011,"morton (33, 51)",Clarendon Street,13,21860

@@ -18,17 +18,32 @@ fn histograms() {
 
     let mastic = Mastic::new_histogram(buckets).unwrap();
 
-    assert!(run_flp_with_input(&verify_key, &mastic, 0).unwrap());
-    assert!(run_flp_with_input(&verify_key, &mastic, 1).unwrap());
-    assert!(run_flp_with_input(&verify_key, &mastic, 2).unwrap());
-    assert!(run_flp_with_input(&verify_key, &mastic, 3).unwrap());
-    assert!(run_flp_with_input(&verify_key, &mastic, 4).unwrap());
+    assert!(run_flp_with_input(&verify_key, &mastic, vec![0]).unwrap());
+    assert!(run_flp_with_input(&verify_key, &mastic, vec![1]).unwrap());
+    assert!(run_flp_with_input(&verify_key, &mastic, vec![2]).unwrap());
+    assert!(run_flp_with_input(&verify_key, &mastic, vec![3]).unwrap());
+    assert!(run_flp_with_input(&verify_key, &mastic, vec![4]).unwrap());
+}
+
+#[test]
+fn multi_histograms() {
+    let mut verify_key = [0; 16];
+    thread_rng().fill(&mut verify_key);
+
+    // Pickup hour | car category | surge | drop-off zone, as in ride-austin-day-morton-all.toml.
+    let mastic = Mastic::new_multi_histogram(vec![24, 4, 2, 4]).unwrap();
+    assert_eq!(mastic.input_len(), 34);
+    for input in [vec![0, 0, 0, 0], vec![20, 1, 1, 3], vec![23, 3, 0, 2]] {
+        assert!(run_flp_with_input(&verify_key, &mastic, input).unwrap());
+    }
+    assert!(mastic.encode_measurement(&vec![24, 0, 0, 0]).is_err());
+    assert!(mastic.encode_measurement(&vec![0, 0, 0]).is_err());
 }
 
 fn run_flp_with_input(
     verify_key: &[u8; 16],
     mastic: &MasticHistogram,
-    input: usize,
+    input: Vec<usize>,
 ) -> Result<bool, FlpError> {
     // 1. The Prover chooses a measurement and secret shares the input.
     let input = mastic.encode_measurement(&input).unwrap();

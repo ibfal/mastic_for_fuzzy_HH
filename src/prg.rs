@@ -67,14 +67,16 @@ impl PrgSeed {
         FIXED_KEY_STREAM.with(|s_in| {
             let mut key_short = self.key;
 
-            // Zero out first two bits and use for output
+            // The two low bits of the seed are the control bits. They are cleared from the AES key,
+            // so the key does not depend on them, and must be read from the original seed: reading
+            // them after the mask made them constant and put `alpha` in every correction word.
             key_short[0] &= 0xFC;
 
             let mut s = s_in.borrow_mut();
             s.set_key(&key_short);
 
             let mut out = PrgOutput {
-                bits: ((key_short[0] & 0x1) == 0, (key_short[0] & 0x2) == 0),
+                bits: ((self.key[0] & 0x1) == 0, (self.key[0] & 0x2) == 0),
                 seeds: (PrgSeed::zero(), PrgSeed::zero()),
             };
 

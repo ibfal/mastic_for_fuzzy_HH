@@ -9,6 +9,7 @@ zipf_unique_buckets = 1000
 zipf_exponent = 1.03
 server_0 = "127.0.0.1:18100"
 server_1 = "127.0.0.1:18101"
+reveal_crawl_histograms = true
 
 [dataset]
 path = "apps/parking/data/parking_day_snapshot.csv"

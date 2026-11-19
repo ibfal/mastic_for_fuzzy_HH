@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>City Ride-Share Map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f6f3;
+    --panel: #ffffff;
+    --text: #1d1d1b;
+    --muted: #6b6b66;
+    --border: #deded8;
+    --track: #ececE6;
+    --neutral: #55554f;
+    --warn-bg: #fff6dc;
+    --warn-text: #6a5100;
+    --hood: #b3261e;
+    --c0: #1a4fa8;  /* Uber */
+    --c1: #c4420f;  /* Lyft */
+    --c2: #0d7a4f;  /* Waymo */
+    --c3: #7b3fd0;  /* RideAustin */
+    --shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141413; --panel: #1e1e1c; --text: #ececE8; --muted: #a1a19b; --border: #34342f;
+      --track: #2b2b28; --neutral: #b5b5ae; --warn-bg: #3a3218; --warn-text: #f1d98a; --hood: #ff8a80;
+      --c0: #5b9cf0; --c1: #f07a45; --c2: #2fbf85; --c3: #a77bf3;
+      --shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+    }
+    :root:not([data-theme="light"]) .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9); }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141413; --panel: #1e1e1c; --text: #ececE8; --muted: #a1a19b; --border: #34342f;
+    --track: #2b2b28; --neutral: #b5b5ae; --warn-bg: #3a3218; --warn-text: #f1d98a; --hood: #ff8a80;
+    --c0: #5b9cf0; --c1: #f07a45; --c2: #2fbf85; --c3: #a77bf3;
+    --shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+  }
+  :root[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9); }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  #map { position: fixed; inset: 0; background: var(--bg); }
+  .leaflet-container { font: inherit; }
+  .card {
+    position: fixed; z-index: 1000; background: var(--panel); border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+
+  /* Controls, top left. */
+  .panel { top: 16px; left: 16px; width: 300px; max-height: calc(100% - 32px); overflow: auto; border-radius: 10px; padding: 16px; }
+  h1 { font-size: 17px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
+  .field { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--muted); margin: 0 0 4px; }
+  select {
+    width: 100%; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
+  }
+  .tabs { display: flex; gap: 3px; padding: 3px; margin: 0 0 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+  .tabs button {
+    flex: 1; font: inherit; font-size: 13px; font-weight: 600; padding: 6px 4px; border: 0; border-radius: 6px;
+    background: none; color: var(--muted); cursor: pointer;
+  }
+  .tabs button:hover { color: var(--text); }
+  .tabs button[aria-selected="true"] { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); }
+  .tabs button:disabled { opacity: 0.4; cursor: default; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0; }
+  .stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 11.5px; }
+
+  .legend { list-style: none; margin: 0; padding: 0; }
+  .legend li { margin: 0 0 2px; }
+  .legend button {
+    width: 100%; display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 8px;
+    font: inherit; color: inherit; background: none; border: 1px solid transparent; border-radius: 6px;
+    padding: 5px 6px; cursor: pointer; text-align: left;
+  }
+  .legend button:hover { background: var(--bg); }
+  .legend button[aria-pressed="true"] { border-color: var(--text); }
+  .legend.focused button[aria-pressed="false"] { opacity: 0.45; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .num { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+  .filter { margin-top: 16px; }
+  .filter-row { display: flex; gap: 8px; align-items: center; }
+  .filter-row select { flex: 1; min-width: 0; }
+  .min { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  .min input {
+    width: 64px; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px; font-variant-numeric: tabular-nums;
+  }
+  .filter-note { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+  .filter-note b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .filter-note .warn { display: block; margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-text); }
+  .hoods { list-style: none; margin: 0; padding: 0; }
+  .hoods li { margin: 0 0 2px; }
+  .hoods button {
+    width: 100%; display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 4px 8px;
+    font: inherit; color: inherit; background: none; border: 1px solid transparent; border-radius: 6px;
+    padding: 5px 6px; cursor: pointer; text-align: left;
+  }
+  .hoods button:hover { background: var(--bg); }
+  .hoods button[aria-pressed="true"] { border-color: var(--hood); }
+  .hoods .rank { font-weight: 600; color: var(--hood); font-variant-numeric: tabular-nums; }
+  .hoods .bar { grid-column: 2 / 4; height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; }
+  .hoods .bar i { display: block; height: 100%; background: var(--hood); }
+  .link { font: inherit; font-size: 12.5px; color: var(--text); background: none; border: 0; padding: 0;
+    text-decoration: underline; cursor: pointer; }
+
+  details { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; font-size: 12.5px; }
+  summary { cursor: pointer; font-weight: 600; }
+  details p { margin: 6px 0; color: var(--muted); }
+
+  .leaflet-tooltip { background: var(--panel); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow); padding: 6px 9px; }
+  .leaflet-tooltip-top::before { border-top-color: var(--panel); }
+  .tip b { font-variant-numeric: tabular-nums; }
+  .tip .meta { color: var(--muted); font-size: 11.5px; }
+
+  /* Cell details, bottom. */
+  .details {
+    left: 332px; right: 16px; bottom: 16px; max-height: 46%; overflow: auto;
+    border-radius: 10px; padding: 14px 16px 16px;
+  }
+  .details[hidden] { display: none; }
+  .details-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+  .details-head h2 { font-size: 15px; margin: 0; font-variant-numeric: tabular-nums; }
+  .details-head .meta { color: var(--muted); font-size: 12px; flex: 1; }
+  .close { font: inherit; font-size: 18px; line-height: 1; color: var(--muted); background: none;
+    border: 1px solid var(--border); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+  .close:hover { color: var(--text); }
+  .blocks { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px 28px; }
+  .block h3 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 6px; }
+  .block table { border-collapse: collapse; width: 100%; }
+  .block td { padding: 2px 0; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .block td.name { padding-right: 8px; }
+  .block td.n { text-align: right; padding: 0 8px; }
+  .block td.p { text-align: right; color: var(--muted); width: 38px; }
+  .block td.bar { width: 45%; }
+  .track { height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; }
+  .track i { display: block; height: 100%; border-radius: 4px; }
+  tr.focus td { font-weight: 600; }
+  .hours { display: flex; align-items: flex-end; gap: 2px; height: 70px; }
+  .hours i { flex: 1; background: var(--neutral); border-radius: 2px 2px 0 0; min-height: 1px; }
+  .hours.has-hit i { opacity: 0.45; }
+  .hours.has-hit i.hit { opacity: 1; background: var(--text); }
+  .hours-axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 3px; }
+  .peak { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .peak b { color: var(--text); }
+  .note { color: var(--muted); font-size: 12px; margin: 12px 0 0; }
+
+  .empty { position: fixed; inset: 0; display: grid; place-items: center; z-index: 2000; background: var(--bg); padding: 16px; text-align: center; }
+
+  @media (max-width: 760px) {
+    .panel { top: 0; left: 0; right: 0; width: auto; max-height: 42%; border-radius: 0 0 12px 12px; padding: 12px 16px; }
+    .panel details, .panel .hint { display: none; }
+    .details { left: 0; right: 0; bottom: 0; max-height: 50%; border-radius: 12px 12px 0 0; }
+    .leaflet-top.leaflet-right { top: 42%; }
+  }
+</style>
+</head>
+<body>
+<div id="map" role="region" aria-label="Map of heavy pickup cells"></div>
+
+<aside class="card panel">
+  <div class="tabs" role="tablist" aria-label="Location shown">
+    <button role="tab" id="tab-pickup" data-tab="pickup" aria-selected="true">Pickups</button>
+    <button role="tab" id="tab-dropoff" data-tab="dropoff" aria-selected="false">Drop-offs</button>
+    <button role="tab" id="tab-plain" data-tab="plain" aria-selected="false">Neighborhoods</button>
+  </div>
+  <h1 id="title">Austin ride-share pickups</h1>
+  <p class="sub" id="subtitle"></p>
+
+  <label class="field" for="encoding">Location encoding</label>
+  <select id="encoding"></select>
+
+  <div class="stats" id="stats"></div>
+  <p class="hint" id="dropped" hidden></p>
+
+  <div id="plain-only" hidden>
+    <span class="field" id="hoods-title">Neighborhoods</span>
+    <ol class="hoods" id="hoods"></ol>
+    <p class="hint">Click a neighborhood to zoom to it and list its cells.</p>
+  </div>
+
+  <div id="weighted-only">
+  <span class="field" id="legend-title">Leading company per cell</span>
+  <ul class="legend" id="legend"></ul>
+  <p class="hint" id="legend-hint"></p>
+
+  <div class="filter">
+    <label class="field" for="filter-bucket">Filter cells</label>
+    <div class="filter-row">
+      <select id="filter-bucket"></select>
+      <label class="min">at least <input id="filter-min" type="number" min="1" step="1" inputmode="numeric" aria-label="Minimum rides in the chosen bucket"> rides</label>
+    </div>
+    <p class="filter-note" id="filter-note" aria-live="polite"></p>
+  </div>
+  </div>
+
+  <details>
+    <summary>What the city learns</summary>
+    <p>Each company turns each ride into a Mastic report. On the Pickups tab α is the pickup cell and β has five one-hot blocks: company, pickup hour, car category, surge and drop-off zone. On the Drop-offs tab α is the drop-off cell, the hour is the drop-off hour and the last block is the pickup zone instead. The two aggregators find the cells with at least the threshold number of rides without seeing any single report.</p>
+    <p>For each heavy cell the city learns the totals of each block: rides per company, per hour, and so on. The blocks are separate, so it does not learn, for example, Waymo's rides per hour. It learns nothing about individual rides or riders, or about cells below the threshold. The colours come only from those totals.</p>
+    <p>Each tab is its own query over the same rides, so with both the city learns the heavy pickup cells and the heavy drop-off cells, each with its block totals. It still does not learn which pickup goes with which drop-off, beyond the three named zones.</p>
+    <p>The Neighborhoods tab is a third query with no weights: β is just the count, so the city learns only how many pickups each heavy cell has. The heavy cells are then grouped into neighborhoods afterwards, from those counts alone, which reveals nothing more.</p>
+    <p>Companies are assigned synthetically (city/make_company_rides.py); the pickups are real RideAustin data from the busiest day (March 17, 2017).</p>
+  </details>
+</aside>
+
+<section class="card details" id="details" hidden aria-live="polite"></section>
+
+<script id="inline-runs" type="application/json">null</script>
+<script>
+// { pickup: { <encoding>: run }, dropoff: { <encoding>: run } }; RUNS is the active tab's.
+const ALL = JSON.parse(document.getElementById("inline-runs").textContent) || {};
+let RUNS = {};
+const TABS = {
+  pickup: {
+    title: "Austin ride-share pickups",
+    sub: "Uber, Lyft, Waymo and RideAustin report every ride to the city through Mastic. Cells are where rides start; the map shows only what the city learns.",
+    noun: "pickups",
+  },
+  plain: {
+    title: "Pickup neighborhoods",
+    sub: "Plain counts, no weights. Heavy pickup cells that touch, or are only one cell apart, form one neighborhood; a lone cell is not one. Uses only the cells the city learned.",
+    noun: "pickups",
+  },
+  dropoff: {
+    title: "Austin ride-share drop-offs",
+    sub: "The same rides, reported by where they end. Cells are popular destinations; the map shows only what the city learns.",
+    noun: "drop-offs",
+  },
+};
+const ENCODING_NAMES = { "mosaic-grid": "Mosaic grid", geohash: "Geohash", h3: "H3 (hexagons)", morton: "Morton (Z-order)" };
+const BLOCK_NAMES = {
+  hour_of_day: "Pickup hour", dropoff_hour: "Drop-off hour", car_category: "Car category", surge: "Surge pricing",
+  dropoff_zone: "Drop-off zone", pickup_zone: "Pickup zone",
+};
+const LABEL_NAMES = {
+  REGULAR: "Regular", SUV: "SUV", PREMIUM: "Premium", LUXURY: "Luxury",
+  airport: "Airport", downtown: "Downtown", ut_campus: "UT campus", other: "Elsewhere",
+  "no surge": "No surge", surge: "Surge",
+};
+// tab: "pickup" or "dropoff"; run: encoding shown; focus: company index shown alone, or null; selected: bits of the open cell;
+// filter: the bucket cells must have at least `min` rides in ("" = no filter, "c:<i>" = company i,
+// "b:<k>:<i>" = bucket i of block k, "h:<k>:<g>" = hours 4g..4g+3 of the hour block k); min
+// defaults to the run's threshold.
+// hood: index of the selected neighborhood on the Neighborhoods tab, or null.
+const state = { tab: "pickup", hood: null, run: null, focus: null, selected: null, filter: { key: "", min: null } };
+
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const color = i => css(`--c${i}`);
+const fmt = n => n.toLocaleString("en-US");
+const pct = x => `${(100 * x).toFixed(x > 0 && x < 0.1 ? 1 : 0)}%`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const pretty = s => LABEL_NAMES[s] || s;
+
+function storage(key, value) {
+  try {
+    if (value === undefined) return localStorage.getItem(key);
+    localStorage.setItem(key, value);
+  } catch (e) { return null; }
+}
+
+if (!Object.values(ALL).some(t => t && Object.keys(t).length)) {
+  document.body.insertAdjacentHTML("beforeend",
+    '<div class="empty"><div><h1>No runs yet</h1><p class="sub">Run <code>city/run.sh</code>, then open <code>city/dist/city-map.html</code>.</p></div></div>');
+  throw new Error("no runs inlined");
+}
+
+const map = L.map("map", { zoomSnap: 0.25, zoomControl: false }).setView([30.29, -97.74], 12);
+L.control.zoom({ position: "topright" }).addTo(map);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom: 19,
+}).addTo(map);
+const layer = L.layerGroup().addTo(map);
+map.on("click", () => (isPlain() ? selectHood(null) : select(null)));
+
+const encodingSelect = document.getElementById("encoding");
+encodingSelect.addEventListener("change", () => { storage("city-map-encoding", encodingSelect.value); show(encodingSelect.value); });
+
+// Switch tab: keep the encoding when the new tab has it. The filter is cleared, since the zone block
+// means pickup zone on one tab and drop-off zone on the other.
+function setTab(tab) {
+  state.tab = tab;
+  state.filter = { key: "", min: null };
+  storage("city-map-tab", tab);
+  RUNS = ALL[tab] || {};
+  for (const b of document.querySelectorAll(".tabs button")) b.setAttribute("aria-selected", b.dataset.tab === tab);
+  document.getElementById("title").textContent = TABS[tab].title;
+  document.getElementById("subtitle").textContent = TABS[tab].sub;
+  const keep = encodingSelect.value || storage("city-map-encoding");
+  encodingSelect.innerHTML = "";
+  for (const name of Object.keys(RUNS)) encodingSelect.add(new Option(ENCODING_NAMES[name] || name, name));
+  encodingSelect.value = keep && RUNS[keep] ? keep : (RUNS.morton ? "morton" : Object.keys(RUNS)[0]);
+  state.selected = null;
+  state.hood = null;
+  document.getElementById("plain-only").hidden = !isPlain();
+  document.getElementById("weighted-only").hidden = isPlain();
+  show(encodingSelect.value);
+}
+for (const b of document.querySelectorAll(".tabs button")) {
+  b.disabled = !ALL[b.dataset.tab] || !Object.keys(ALL[b.dataset.tab]).length;
+  b.addEventListener("click", () => { if (b.dataset.tab !== state.tab) setTab(b.dataset.tab); });
+}
+
+document.addEventListener("keydown", e => { if (e.key === "Escape") (isPlain() ? selectHood(null) : select(null)); });
+
+const isPlain = () => state.tab === "plain";
+
+const run = () => RUNS[state.run];
+const leader = cell => cell.counts.reduce((best, c, i, a) => (c > a[best] ? i : best), 0);
+
+// The filter groups the hours (pickup or drop-off) into six periods of HOUR_GROUP hours.
+const HOUR_BLOCKS = ["hour_of_day", "dropoff_hour"];
+const HOUR_GROUP = 4;
+const hourRange = g => `${String(g * HOUR_GROUP).padStart(2, "0")}:00–${String((g + 1) * HOUR_GROUP).padStart(2, "0")}:00`;
+
+// The cell's rides in the filter's bucket (or hour period), or its total without a filter.
+function filterCount(cell, key) {
+  if (!key) return cell.total;
+  const [kind, a, b] = key.split(":").map((x, i) => (i ? Number(x) : x));
+  if (kind === "c") return cell.counts[a];
+  if (kind === "h") return cell.stats[a].slice(b * HOUR_GROUP, (b + 1) * HOUR_GROUP).reduce((x, y) => x + y, 0);
+  return cell.stats[a][b];
+}
+
+function filterMin() {
+  return state.filter.min ?? run().threshold;
+}
+
+// Cells shown: every heavy cell, or those with at least `min` rides in the chosen bucket. This only
+// reads what the city already learned, so filtering reveals nothing new.
+function visibleCells() {
+  const { key } = state.filter;
+  const r = run();
+  if (!key) return r.cells;
+  const min = filterMin();
+  return r.cells.filter(c => filterCount(c, key) >= min);
+}
+
+function filterLabel(key) {
+  const r = run();
+  const [kind, a, b] = key.split(":").map((x, i) => (i ? Number(x) : x));
+  if (kind === "c") return r.companies[a];
+  if (kind === "h") return `${r.blocks[a].weight === "dropoff_hour" ? "drop-off" : "pickup"} ${hourRange(b)}`;
+  const block = r.blocks[a];
+  const label = pretty(block.labels[b]);
+  if (block.weight === "hour_of_day") return `pickup at ${label}`;
+  if (block.weight === "dropoff_hour") return `drop-off at ${label}`;
+  if (block.weight === "dropoff_zone") return `drop-off at ${label}`;
+  if (block.weight === "pickup_zone") return `pickup at ${label}`;
+  return label;
+}
+
+function filterOptions() {
+  const r = run();
+  const el = document.getElementById("filter-bucket");
+  const current = state.filter.key;
+  el.innerHTML = "";
+  el.add(new Option("All heavy cells (no filter)", ""));
+  const group = (title, items) => {
+    const g = document.createElement("optgroup");
+    g.label = title;
+    for (const [label, value] of items) g.appendChild(new Option(label, value));
+    el.appendChild(g);
+  };
+  group("Company", r.companies.map((name, i) => [name, `c:${i}`]));
+  r.blocks.forEach((b, k) => group(BLOCK_NAMES[b.weight] || b.weight, HOUR_BLOCKS.includes(b.weight)
+    ? Array.from({ length: Math.ceil(b.labels.length / HOUR_GROUP) }, (_, g) => [hourRange(g), `h:${k}:${g}`])
+    : b.labels.map((l, i) => [pretty(l), `b:${k}:${i}`])));
+  el.value = [...el.options].some(o => o.value === current) ? current : "";
+  state.filter.key = el.value;
+  document.getElementById("filter-min").value = filterMin();
+  document.getElementById("filter-min").disabled = !state.filter.key;
+}
+
+function filterNote() {
+  const r = run();
+  const el = document.getElementById("filter-note");
+  const { key } = state.filter;
+  if (!key) {
+    el.innerHTML = `Showing all <b>${fmt(r.cells.length)}</b> heavy cells.`;
+    return;
+  }
+  const min = filterMin();
+  const shown = visibleCells().length;
+  let html = `<b>${fmt(shown)}</b> of ${fmt(r.cells.length)} heavy cells have at least <b>${fmt(min)}</b> rides with ${esc(filterLabel(key))}.`;
+  if (min < r.threshold) {
+    html += `<span class="warn">Below ${fmt(r.threshold)} this is only part of the answer: it is limited to cells that were heavy overall (at least ${fmt(r.threshold)} rides in total). A cell with fewer rides in total never reached the city, even if it has ${fmt(min)} rides here.</span>`;
+  }
+  el.innerHTML = html;
+}
+
+document.getElementById("filter-bucket").addEventListener("change", e => {
+  state.filter.key = e.target.value;
+  document.getElementById("filter-min").disabled = !state.filter.key;
+  refresh();
+});
+document.getElementById("filter-min").addEventListener("input", e => {
+  const v = Math.floor(Number(e.target.value));
+  state.filter.min = Number.isFinite(v) && v >= 1 ? v : null;
+  refresh();
+});
+
+function draw() {
+  if (isPlain()) drawPlain(); else drawWeighted();
+}
+
+function drawWeighted() {
+  const r = run();
+  layer.clearLayers();
+  const focus = state.focus;
+  const cells = visibleCells();
+  const focusMax = focus === null ? 0 : Math.max(1, ...cells.map(c => c.counts[focus]));
+  for (const cell of cells) {
+    let i, opacity;
+    if (focus === null) {
+      // Leading company; stronger fill the clearer its lead (25% share = a four-way tie).
+      i = leader(cell);
+      const share = cell.counts[i] / cell.total;
+      opacity = 0.3 + 0.6 * Math.max(0, Math.min(1, (share - 0.25) / 0.75));
+    } else {
+      // Only the focused company: its rides in the cell, relative to its busiest cell.
+      i = focus;
+      if (!cell.counts[i]) continue;
+      opacity = 0.2 + 0.7 * Math.sqrt(cell.counts[i] / focusMax);
+    }
+    const selected = cell.bits === state.selected;
+    const tip = () => {
+      const k = focus ?? leader(cell);
+      return `<div class="tip"><b>${fmt(cell.total)}</b> rides · ${esc(r.companies[k])} <b>${pct(cell.counts[k] / cell.total)}</b>`
+        + `<div class="meta">Click for details</div></div>`;
+    };
+    for (const ring of cell.region) {
+      L.polygon(ring, {
+        color: selected ? css("--text") : color(i),
+        weight: selected ? 3 : 1.5,
+        opacity: 1,
+        fillColor: color(i),
+        fillOpacity: opacity,
+      })
+        .bindTooltip(tip, { direction: "top", sticky: true })
+        .on("click", e => { L.DomEvent.stopPropagation(e); select(cell.bits); })
+        .addTo(layer);
+    }
+  }
+}
+
+function legend() {
+  const r = run();
+  const shown = visibleCells();
+  const totals = r.companies.map((_, i) => shown.reduce((a, c) => a + c.counts[i], 0));
+  const all = totals.reduce((a, b) => a + b, 0) || 1;
+  const el = document.getElementById("legend");
+  el.classList.toggle("focused", state.focus !== null);
+  el.innerHTML = r.companies.map((name, i) => `
+    <li><button data-i="${i}" aria-pressed="${state.focus === i}">
+      <span class="swatch" style="background:${color(i)}"></span>
+      <span>${esc(name)}</span>
+      <span class="num">${fmt(totals[i])} · ${pct(totals[i] / all)}</span>
+    </button></li>`).join("");
+  for (const b of el.querySelectorAll("button")) {
+    b.addEventListener("click", () => {
+      const i = Number(b.dataset.i);
+      state.focus = state.focus === i ? null : i;
+      refresh();
+    });
+  }
+  document.getElementById("legend-title").textContent =
+    state.focus === null ? "Leading company per cell" : `Only ${r.companies[state.focus]}`;
+  const hint = document.getElementById("legend-hint");
+  if (state.focus === null) {
+    hint.textContent = "Click a company to show only its rides. Click a cell for details.";
+  } else {
+    hint.innerHTML = `Darker cells have more ${esc(r.companies[state.focus])} rides. <button class="link" id="show-all">Show all companies</button>`;
+    document.getElementById("show-all").addEventListener("click", () => { state.focus = null; refresh(); });
+  }
+}
+
+function bars(labels, values, colorOf, focusIndex) {
+  const total = values.reduce((a, b) => a + b, 0) || 1;
+  return `<table>${labels.map((label, i) => `
+    <tr${i === focusIndex ? ' class="focus"' : ""}>
+      <td class="name">${colorOf ? `<span class="swatch" style="background:${colorOf(i)}"></span> ` : ""}${esc(pretty(label))}</td>
+      <td class="bar"><div class="track"><i style="width:${100 * values[i] / total}%;background:${colorOf ? colorOf(i) : "var(--neutral)"}"></i></div></td>
+      <td class="n">${fmt(values[i])}</td>
+      <td class="p">${pct(values[i] / total)}</td>
+    </tr>`).join("")}</table>`;
+}
+
+function hours(labels, values, hit, name) {
+  const max = Math.max(1, ...values);
+  const peak = values.indexOf(Math.max(...values));
+  return `<div class="hours${hit.length ? " has-hit" : ""}" role="img" aria-label="Rides per ${esc(name.toLowerCase())}">${values.map((v, h) =>
+    `<i${hit.includes(h) ? ' class="hit"' : ""} style="height:${100 * v / max}%" title="${esc(labels[h])}: ${fmt(v)} rides"></i>`).join("")}</div>
+    <div class="hours-axis"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>
+    <div class="peak">Busiest hour: <b>${esc(labels[peak])}</b>, ${fmt(values[peak])} rides</div>`;
+}
+
+function details() {
+  if (isPlain()) detailsPlain(); else detailsWeighted();
+}
+
+function detailsWeighted() {
+  const el = document.getElementById("details");
+  const r = run();
+  const cell = visibleCells().find(c => c.bits === state.selected);
+  if (!cell) { state.selected = null; el.hidden = true; return; }
+  const lead = leader(cell);
+  // The filtered bucket, highlighted in its block.
+  const [kind, fa, fb] = (state.filter.key || "x").split(":").map((x, i) => (i ? Number(x) : x));
+  const hitIn = k => (kind === "b" && fa === k ? fb : -1);
+  const hoursHit = k => (kind === "h" && fa === k
+    ? Array.from({ length: HOUR_GROUP }, (_, j) => fb * HOUR_GROUP + j) : []);
+  const blocks = r.blocks.map((b, k) => `
+    <div class="block"><h3>${esc(BLOCK_NAMES[b.weight] || b.weight)}</h3>
+      ${HOUR_BLOCKS.includes(b.weight) ? hours(b.labels, cell.stats[k], hoursHit(k), BLOCK_NAMES[b.weight]) : bars(b.labels, cell.stats[k], null, hitIn(k))}
+    </div>`).join("");
+  el.innerHTML = `
+    <div class="details-head">
+      <h2>${fmt(cell.total)} rides</h2>
+      <span class="meta">${esc(cell.label || cell.bits)} · led by ${esc(r.companies[lead])}</span>
+      <button class="close" aria-label="Close details">×</button>
+    </div>
+    <div class="blocks">
+      <div class="block"><h3>Companies</h3>${bars(r.companies, cell.counts, color, kind === "c" ? fa : (state.focus ?? lead))}</div>
+      ${blocks}
+    </div>
+    <p class="note">${esc(r.blocks.map(b => BLOCK_NAMES[b.weight] || b.weight).join(", "))} are totals for all companies in this cell: Mastic reveals each block on its own, not per company.</p>`;
+  el.querySelector(".close").addEventListener("click", () => select(null));
+  el.hidden = false;
+}
+
+function select(bits) {
+  state.selected = bits;
+  draw();
+  details();
+}
+
+function refresh() {
+  details();
+  if (isPlain()) {
+    hoodList();
+  } else {
+    legend();
+    filterNote();
+  }
+  draw();
+}
+
+// ---- Neighborhoods tab: plain counts, heavy cells grouped by distance. ----
+
+function drawPlain() {
+  const r = run();
+  layer.clearLayers();
+  const max = Math.max(1, ...r.cells.map(c => c.total));
+  const hoodColor = css("--hood");
+  const neutral = css("--neutral");
+  // Cells below the threshold that a neighborhood took in (a one-cell gap or a hole), with a dashed
+  // edge. Counts the crawl already revealed are shaded like heavy cells; unknown ones are tinted.
+  r.neighborhoods.forEach((h, k) => {
+    const lit = state.hood === null || state.hood === k;
+    for (const a of h.added) {
+      const known = a.count !== null;
+      for (const ring of a.region) {
+        L.polygon(ring, {
+          color: hoodColor, weight: 0.5, opacity: lit ? 0.6 : 0.2, dashArray: "2 3",
+          fillColor: known ? neutral : hoodColor,
+          fillOpacity: known ? (lit ? 0.2 + 0.65 * Math.sqrt(a.count / max) : 0.08) : (lit ? 0.16 : 0.05),
+        })
+          .bindTooltip(() => known
+            ? `<div class="tip"><b>${fmt(a.count)}</b> pickups · count revealed by the crawl<div class="meta">Below the threshold; part of neighborhood #${k + 1} (in a gap or enclosed)</div></div>`
+            : `<div class="tip">Count unknown<div class="meta">Below the threshold and never revealed; part of neighborhood #${k + 1} (in a gap or enclosed)</div></div>`,
+            { direction: "top", sticky: true })
+          .on("click", e => { L.DomEvent.stopPropagation(e); selectHood(k, false); })
+          .addTo(layer);
+      }
+    }
+  });
+  // Heavy cells: those in a neighborhood shaded by pickups, lone cells faint.
+  r.cells.forEach((cell, i) => {
+    const k = r.cellHood[i];
+    const inHood = k !== undefined;
+    const lit = inHood && (state.hood === null || state.hood === k);
+    for (const ring of cell.region) {
+      L.polygon(ring, {
+        color: neutral, weight: inHood ? 1 : 0.5, opacity: lit ? 0.9 : 0.4,
+        fillColor: neutral, fillOpacity: lit ? 0.2 + 0.65 * Math.sqrt(cell.total / max) : 0.12,
+      })
+        .bindTooltip(() => `<div class="tip"><b>${fmt(cell.total)}</b> pickups<div class="meta">${esc(cell.label || cell.bits)} · ${inHood ? `neighborhood #${k + 1}` : "no heavy cell within one cell of it, so not in a neighborhood"}</div></div>`, { direction: "top", sticky: true })
+        .on("click", e => { L.DomEvent.stopPropagation(e); if (inHood) selectHood(k, false); })
+        .addTo(layer);
+    }
+  });
+  // Borders on top: the outer edges of each neighborhood's cells, added cells included.
+  r.neighborhoods.forEach((h, k) => {
+    const selected = k === state.hood;
+    L.polyline(h.outline, {
+      color: hoodColor, weight: selected ? 4 : 2.5, opacity: selected || state.hood === null ? 1 : 0.35,
+      interactive: false,
+    }).addTo(layer);
+  });
+}
+
+function hoodList() {
+  const r = run();
+  const max = Math.max(1, ...r.neighborhoods.map(h => h.total));
+  document.getElementById("hoods-title").textContent =
+    `${fmt(r.neighborhoods.length)} neighborhoods`;
+  const el = document.getElementById("hoods");
+  el.innerHTML = r.neighborhoods.map((h, k) => `
+    <li><button data-k="${k}" aria-pressed="${state.hood === k}">
+      <span class="rank">#${k + 1}</span>
+      <span>${fmt(h.cells.length)} heavy${h.revealed_cells ? ` + ${fmt(h.revealed_cells)} revealed` : ""}${h.unknown_cells ? ` + ${fmt(h.unknown_cells)} unknown` : ""}</span>
+      <span class="num">${fmt(h.total)} pickups</span>
+      <span class="bar"><i style="width:${100 * h.total / max}%"></i></span>
+    </button></li>`).join("");
+  for (const b of el.querySelectorAll("button")) {
+    b.addEventListener("click", () => selectHood(Number(b.dataset.k), true));
+  }
+}
+
+function selectHood(k, zoom) {
+  state.hood = state.hood === k ? null : k;
+  if (zoom && state.hood !== null) {
+    const h = run().neighborhoods[k];
+    const pts = h.outline.flat();
+    map.fitBounds(pts, { padding: [60, 60], maxZoom: 16 });
+  }
+  refresh();
+}
+
+function detailsPlain() {
+  const el = document.getElementById("details");
+  const r = run();
+  const h = state.hood === null ? null : r.neighborhoods[state.hood];
+  if (!h) { el.hidden = true; return; }
+  const shown = h.cells.slice(0, 12);
+  const top = r.cells[h.cells[0]].total;
+  const rows = shown.map(i => {
+    const c = r.cells[i];
+    return `<tr><td class="name">${esc(c.label || c.bits)}</td>
+      <td class="bar"><div class="track"><i style="width:${100 * c.total / top}%;background:var(--neutral)"></i></div></td>
+      <td class="n">${fmt(c.total)}</td><td class="p">${pct(c.total / h.total)}</td></tr>`;
+  }).join("");
+  const more = h.cells.length - shown.length;
+  const known = h.added.filter(a => a.count !== null);
+  const below = known.length || h.unknown_cells ? `
+    <div class="block"><h3>Below the threshold</h3>
+      ${known.length ? `<table>${known.slice(0, 8).map(a => `<tr><td class="name">${esc(a.label || a.bits)}</td>
+        <td class="bar"><div class="track"><i style="width:${100 * a.count / top}%;background:var(--neutral)"></i></div></td>
+        <td class="n">${fmt(a.count)}</td><td class="p">${pct(a.count / h.total)}</td></tr>`).join("")}</table>` : ""}
+      ${known.length > 8 ? `<p class="note">and ${fmt(known.length - 8)} more with revealed counts</p>` : ""}
+      <p class="note">${fmt(known.length)} cell${known.length === 1 ? "" : "s"} with the count revealed by the crawl (${fmt(h.revealed_total)} pickups, included above)${h.unknown_cells ? `; ${fmt(h.unknown_cells)} with the count unknown, not included` : ""}.</p>
+    </div>` : "";
+  el.innerHTML = `
+    <div class="details-head">
+      <h2>Neighborhood #${state.hood + 1}: ${fmt(h.total)} pickups</h2>
+      <span class="meta">${fmt(h.heavy_total)} in ${fmt(h.cells.length)} heavy cell${h.cells.length === 1 ? "" : "s"} + ${fmt(h.revealed_total)} in ${fmt(h.revealed_cells)} cell${h.revealed_cells === 1 ? "" : "s"} with the count revealed by the crawl${h.unknown_cells ? ` + ${fmt(h.unknown_cells)} cell${h.unknown_cells === 1 ? "" : "s"} with the count unknown` : ""} · ${pct(h.total / r.num_clients)} of all pickups</span>
+      <button class="close" aria-label="Close details">×</button>
+    </div>
+    <div class="blocks"><div class="block"><h3>Heavy cells, busiest first</h3><table>${rows}</table>
+      ${more > 0 ? `<p class="note">and ${fmt(more)} more cell${more === 1 ? "" : "s"}</p>` : ""}</div>${below}</div>
+    <p class="note">A neighborhood is a connected area of heavy cells: cells that share a side or a corner (for H3, a side), chained together; areas only one cell apart are joined, and the cell in the gap and any enclosed cells become part of it. Those cells are below the threshold. Where the crawl already revealed a cell's count (it reveals both halves of every heavy area at each level), that count is included, which reveals nothing new; the other cells' counts are unknown and not included. At least ${r.min_cells} heavy cells.</p>`;
+  el.querySelector(".close").addEventListener("click", () => selectHood(null));
+  el.hidden = false;
+}
+
+function show(name) {
+  state.run = name;
+  const r = run();
+  if (isPlain()) {
+    state.hood = null;
+    r.cellHood = [];
+    r.neighborhoods.forEach((h, k) => h.cells.forEach(i => { r.cellHood[i] = k; }));
+    const inCells = r.cells.reduce((a, c) => a + c.total, 0);
+    document.getElementById("stats").innerHTML = `
+      <div class="stat"><b>${fmt(r.cells.length)}</b><span>heavy cells (≥ ${fmt(r.threshold)} pickups)</span></div>
+      <div class="stat"><b>${fmt(r.neighborhoods.length)}</b><span>neighborhoods (${fmt(r.neighborhoods.reduce((a, h) => a + h.cells.length, 0))} cells)</span></div>
+      <div class="stat"><b>${pct(inCells / r.num_clients)}</b><span>of ${fmt(r.num_clients)} pickups covered</span></div>`;
+    document.getElementById("dropped").hidden = true;
+    refresh();
+    return;
+  }
+  // A cell of another encoding has other bits; close its details.
+  if (!r.cells.some(c => c.bits === state.selected)) state.selected = null;
+  const inCells = r.cells.reduce((a, c) => a + c.total, 0);
+  document.getElementById("stats").innerHTML = `
+    <div class="stat"><b>${fmt(r.cells.length)}</b><span>heavy cells</span></div>
+    <div class="stat"><b>${fmt(r.threshold)}</b><span>${TABS[state.tab].noun} to be heavy (${pct(r.threshold_fraction)})</span></div>
+    <div class="stat"><b>${pct(inCells / r.num_clients)}</b><span>of ${fmt(r.num_clients)} ${TABS[state.tab].noun} covered</span></div>`;
+  const dropped = (r.num_rides || r.num_clients) - r.num_clients;
+  const droppedEl = document.getElementById("dropped");
+  droppedEl.hidden = dropped <= 0;
+  droppedEl.textContent = dropped > 0
+    ? `${fmt(dropped)} ${TABS[state.tab].noun} fall outside this encoding's area and were not sent.` : "";
+  filterOptions();
+  refresh();
+}
+
+// Redraw when the colour scheme changes, since the company colours come from CSS.
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", refresh);
+
+const savedTab = storage("city-map-tab");
+setTab(savedTab && ALL[savedTab] && Object.keys(ALL[savedTab]).length ? savedTab : (Object.keys(ALL.pickup || {}).length ? "pickup" : "dropoff"));
+const first = run().cells.map(c => c.center);
+if (first.length) map.fitBounds(first, { padding: [40, 40], maxZoom: 14 });
+</script>
+</body>
+</html>

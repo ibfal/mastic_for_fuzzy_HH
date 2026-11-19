@@ -70,35 +70,176 @@ pub enum Encoding {
     },
 }
 
-/// What each ride contributes to the histogram `beta`.
+/// One block of the one-hot histogram `beta`: which of its buckets a ride goes into. The FLP
+/// checks that every block is one-hot, so every ride adds exactly 1 to one bucket of each block.
+/// The threshold is on the separate VIDPF counter, so which regions are heavy does not depend on
+/// the weights: they only decide the histograms each heavy region comes back with.
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", from = "WeightSpec")]
 pub enum Weight {
-    /// Every ride counts once, as in Poplar (`hist_buckets = 1`).
+    /// Every ride counts once, as in Poplar (1 bucket).
     #[default]
     Constant,
 
-    /// One-hot over hour-of-day buckets: the row's `hour` column (0 to 23) goes to bucket
-    /// `hour * buckets / 24` (`hist_buckets = buckets`). `buckets` must divide 24: 24 = one bucket
-    /// per hour, 6 = 4-hour blocks (00-04, ..., 20-24), 1 = the count only. Written in a config as
-    /// `weight.hour_of_day = { buckets = 24 }`.
+    /// Pickup hour, one-hot over `buckets` blocks of the day: hour `h` (0 to 23) goes to bucket
+    /// `h * buckets / 24`. `buckets` must divide 24: 24 = one bucket per hour, 6 = 4-hour blocks
+    /// (00-04, ..., 20-24), 1 = the count only. The hour is read from the `hour_of_day` column
+    /// (the ride data) or, if the file has none, from the `hour` column (the parking data).
+    ///
+    /// In a config: `"hour_of_day"` for 24 buckets, or `{ hour_of_day = { buckets = 6 } }`, e.g.
+    /// `weight.hour_of_day = { buckets = 6 }`.
     HourOfDay {
         /// Number of buckets, a divisor of 24.
         buckets: usize,
     },
+
+    /// Drop-off hour from the `dropoff_hour` column (24 buckets).
+    DropoffHour,
+
+    /// `requested_car_category`: REGULAR, SUV, PREMIUM, LUXURY (4 buckets).
+    CarCategory,
+
+    /// Whether `surge_factor` is above 1: no surge, surge (2 buckets).
+    Surge,
+
+    /// Which of the dataset's `zones` the drop-off (`end_location_lat`, `end_location_long`)
+    /// falls in: the first zone whose circle contains it, or a final "other" bucket
+    /// (`zones.len() + 1` buckets).
+    DropoffZone,
+
+    /// The `company` column: which of the dataset's `companies` handled the ride
+    /// (`companies.len()` buckets). A ride from a company not in the list is an error.
+    Company,
+
+    /// Which of the dataset's `zones` the pickup (`start_location_lat`, `start_location_long`)
+    /// falls in, like [`Weight::DropoffZone`]; for `alpha = "dropoff"` (`zones.len() + 1` buckets).
+    PickupZone,
+}
+
+/// Hours in a day: the range of the hour columns and the finest [`Weight::HourOfDay`].
+pub const HOURS: usize = 24;
+
+/// How a weight is written in a config: a name, or a table for a weight with parameters.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum WeightSpec {
+    Name(WeightName),
+    Table(WeightTable),
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum WeightName {
+    Constant,
+    HourOfDay,
+    DropoffHour,
+    CarCategory,
+    Surge,
+    DropoffZone,
+    Company,
+    PickupZone,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+enum WeightTable {
+    HourOfDay { buckets: usize },
+}
+
+impl From<WeightSpec> for Weight {
+    fn from(spec: WeightSpec) -> Self {
+        match spec {
+            WeightSpec::Name(name) => match name {
+                WeightName::Constant => Weight::Constant,
+                WeightName::HourOfDay => Weight::HourOfDay { buckets: HOURS },
+                WeightName::DropoffHour => Weight::DropoffHour,
+                WeightName::CarCategory => Weight::CarCategory,
+                WeightName::Surge => Weight::Surge,
+                WeightName::DropoffZone => Weight::DropoffZone,
+                WeightName::Company => Weight::Company,
+                WeightName::PickupZone => Weight::PickupZone,
+            },
+            WeightSpec::Table(WeightTable::HourOfDay { buckets }) => Weight::HourOfDay { buckets },
+        }
+    }
+}
+
+/// Which point of a ride is encoded as `alpha`, the location the heavy hitters are found over.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Alpha {
+    /// `start_location_lat`, `start_location_long`.
+    #[default]
+    Pickup,
+
+    /// `end_location_lat`, `end_location_long`. A ride without them is an error.
+    Dropoff,
+}
+
+/// A named circle for [`Weight::DropoffZone`].
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+pub struct Zone {
+    pub name: String,
+    pub lat: f64,
+    pub lon: f64,
+    pub radius_km: f64,
+}
+
+/// `weight = "surge"`, `weight.hour_of_day = { buckets = 6 }` or
+/// `weight = ["hour_of_day", "surge"]`.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum OneOrMany {
+    One(Weight),
+    Many(Vec<Weight>),
+}
+
+fn one_or_many<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Weight>, D::Error> {
+    let weights = match OneOrMany::deserialize(d)? {
+        OneOrMany::One(w) => vec![w],
+        OneOrMany::Many(ws) => ws,
+    };
+    if weights.is_empty() {
+        return Err(serde::de::Error::custom(
+            "`weight` needs at least one entry",
+        ));
+    }
+    Ok(weights)
+}
+
+fn default_weights() -> Vec<Weight> {
+    vec![Weight::Constant]
 }
 
 /// Use real ride data instead of synthetic Zipf inputs.
 #[derive(Deserialize, Debug, Clone)]
 pub struct DatasetConfig {
-    /// Path to a CSV with `start_location_lat` and `start_location_long` columns (and `hour`
-    /// for `Weight::HourOfDay`).
+    /// Path to a CSV with `start_location_lat` and `start_location_long` columns, plus whatever
+    /// columns the weights read (`hour_of_day` or `hour` for `Weight::HourOfDay`).
     pub path: String,
 
     pub encoding: Encoding,
 
+    /// The point of each ride encoded as `alpha`: `alpha = "pickup"` (the default) or `"dropoff"`.
     #[serde(default)]
-    pub weight: Weight,
+    pub alpha: Alpha,
+
+    /// The blocks of `beta`, in order. In the config: `weight = "<one>"` or
+    /// `weight = ["<one>", "<two>", ...]`; `hist_buckets` must be the total number of buckets.
+    #[serde(
+        rename = "weight",
+        default = "default_weights",
+        deserialize_with = "one_or_many"
+    )]
+    pub weights: Vec<Weight>,
+
+    /// Zones for [`Weight::DropoffZone`] and [`Weight::PickupZone`], in priority order.
+    #[serde(default)]
+    pub zones: Vec<Zone>,
+
+    /// Company names for [`Weight::Company`], in bucket order.
+    #[serde(default)]
+    pub companies: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -106,7 +247,8 @@ pub struct Config {
     /// Number of bits of each string.
     pub data_bits: Option<usize>,
 
-    /// Number of histogram buckets for the FLP range check.
+    /// Number of histogram buckets for the FLP range check: with a dataset, the total over its
+    /// weights. See [`Config::hist_blocks`].
     pub hist_buckets: usize,
 
     /// The servers will output the collection of strings that more than a `threshold` of clients
@@ -134,6 +276,14 @@ pub struct Config {
     /// Optional ride dataset. When set, the driver sends one report per ride.
     pub dataset: Option<DatasetConfig>,
 
+    /// What the servers reveal while crawling. `false` (the default): only each candidate's
+    /// count, and the histograms of `beta` only for the final heavy hitters. `true`: also each
+    /// candidate's histograms at every level, including the pruned ones, as the parking app
+    /// uses them. Both servers and the driver read it from the same config; each server refuses
+    /// to send histograms unless its own config enables it.
+    #[serde(default)]
+    pub reveal_crawl_histograms: bool,
+
     /// Driver only (`--export`): file to write the crawl to as JSON, for viz/index.html.
     #[serde(skip)]
     pub export: Option<String>,
@@ -147,6 +297,17 @@ pub struct Config {
     /// or `@file`.
     #[serde(skip)]
     pub bench_meta: Option<String>,
+}
+
+impl Config {
+    /// Number of buckets of each block of `beta`: one block per dataset weight, or a single block
+    /// of `hist_buckets` for synthetic inputs.
+    pub fn hist_blocks(&self) -> Vec<usize> {
+        match &self.dataset {
+            Some(dataset) => dataset.block_sizes(),
+            None => vec![self.hist_buckets],
+        }
+    }
 }
 
 pub fn get_config(filename: &str) -> Config {

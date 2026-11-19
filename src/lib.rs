@@ -3,6 +3,7 @@ pub mod collect;
 pub mod config;
 pub mod dataset;
 pub mod geo;
+pub mod multi_histogram;
 pub mod prg;
 pub mod rpc;
 pub mod vidpf;
@@ -14,12 +15,13 @@ use prio::{
     field::Field128,
     flp::{
         gadgets::{Mul, ParallelSum},
-        types::{Histogram, Sum},
+        types::Sum,
         FlpError,
     },
     vdaf::VdafError,
 };
 
+use crate::multi_histogram::MultiHistogram;
 pub use crate::rpc::CollectorClient;
 
 pub const HASH_SIZE: usize = 16;
@@ -113,16 +115,22 @@ impl MasticSum {
     }
 }
 
-/// The histogram type. Each measurement is an integer in `[0, length)` and the result is a
-/// histogram counting the number of occurrences of each measurement.
-pub type MasticHistogram = Mastic<Histogram<Field128, ParallelSum<Field128, Mul<Field128>>>>;
+/// The type of `beta`: one or more one-hot blocks (see [`MultiHistogram`]). Each measurement is
+/// one bucket index per block, and the result is one histogram per block. With a single block it
+/// is prio's `Histogram`.
+pub type MasticHistogram = Mastic<MultiHistogram<Field128, ParallelSum<Field128, Mul<Field128>>>>;
 
 impl MasticHistogram {
-    /// Constructs an instance of MasticHistogram with the given number of aggregators,
-    /// number of buckets, and parallel sum gadget chunk length.
+    /// A single one-hot block of `length` buckets.
     pub fn new_histogram(length: usize) -> Result<Self, VdafError> {
-        Mastic::new(Histogram::new(
-            length,
+        Self::new_multi_histogram(vec![length])
+    }
+
+    /// One one-hot block per entry of `blocks`, of that many buckets.
+    pub fn new_multi_histogram(blocks: Vec<usize>) -> Result<Self, VdafError> {
+        let length = blocks.iter().sum();
+        Mastic::new(MultiHistogram::new(
+            blocks,
             histogram_chunk_length(
                 length,
                 Mode::WeightedHeavyHitters {
@@ -130,6 +138,11 @@ impl MasticHistogram {
                 },
             ),
         )?)
+    }
+
+    /// Number of buckets of each block of `beta`.
+    pub fn blocks(&self) -> &[usize] {
+        self.typ.blocks()
     }
 }
 

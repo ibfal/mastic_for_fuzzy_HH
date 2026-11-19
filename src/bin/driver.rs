@@ -15,9 +15,10 @@ use mastic::{
     histogram_chunk_length,
     rpc::{
         AddReportSharesRequest, ApplyFLPResultsRequest, AttributeBasedMetricsResultRequest,
-        AttributeBasedMetricsValidateRequest, FinalSharesRequest, GetProofsRequest,
-        PlainMetricsResultRequest, PlainMetricsValidateRequest, ResetRequest, RunFlpQueriesRequest,
-        TreeCrawlLastRequest, TreeCrawlRequest, TreeInitRequest, TreePruneRequest,
+        AttributeBasedMetricsValidateRequest, FinalSharesRequest, FrontierHistogramsRequest,
+        GetProofsRequest, PlainMetricsResultRequest, PlainMetricsValidateRequest, ResetRequest,
+        RunFlpQueriesRequest, TreeCrawlLastRequest, TreeCrawlRequest, TreeInitRequest,
+        TreePruneRequest,
     },
     vec_add,
     vidpf::VidpfKey,
@@ -50,9 +51,13 @@ fn long_context() -> context::Context {
 #[derive(Serialize)]
 struct ExportCandidate {
     bits: String,
-    /// Number of clients under this prefix (the counter, the last element of `value`).
+    /// Number of clients under this prefix: all the collector learns about it during the crawl.
     count: u64,
-    value: Vec<u64>,
+    /// The prefix's full value, its histograms of `beta` followed by the count. By default only
+    /// the final heavy hitters have one: the servers reveal `beta` for nothing else. With
+    /// `reveal_crawl_histograms`, every candidate of every level has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value: Option<Vec<u64>>,
     /// Whether the count reached the threshold, so the crawl expands this prefix.
     heavy: bool,
     /// Outline of the prefix as polygons of `[lat, lon]`; empty without a dataset.
@@ -119,30 +124,50 @@ impl CrawlExport {
             .collect()
     }
 
+    /// `values`: both servers' shares of each candidate's full value, with
+    /// `reveal_crawl_histograms`.
     fn record(
         &mut self,
-        input_len: usize,
-        cnt_values_0: &[Vec<Field128>],
-        cnt_values_1: &[Vec<Field128>],
+        cnt_values_0: &[Field128],
+        cnt_values_1: &[Field128],
         keep: &[bool],
+        values: Option<&(Vec<Vec<Field128>>, Vec<Vec<Field128>>)>,
     ) {
         let paths: Vec<Vec<bool>> = self
             .frontier
             .iter()
             .flat_map(|p| [false, true].map(|b| [&p[..], &[b]].concat()))
             .collect();
-        assert_eq!(paths.len(), cnt_values_0.len());
+        let counts = collect::KeyCollection::counts(cnt_values_0, cnt_values_1);
+        assert_eq!(paths.len(), counts.len());
+        let mut values: Vec<Option<Vec<u64>>> = match values {
+            Some((values_0, values_1)) => {
+                assert_eq!(values_0.len(), counts.len());
+                assert_eq!(values_1.len(), counts.len());
+                values_0
+                    .iter()
+                    .zip(values_1)
+                    .zip(&counts)
+                    .map(|((v0, v1), &count)| {
+                        let value: Vec<u64> = v0
+                            .iter()
+                            .zip(v1)
+                            .map(|(&a, &b)| u128::from(a + b) as u64)
+                            .collect();
+                        assert_eq!(value.last(), Some(&count), "histogram and count disagree");
+                        Some(value)
+                    })
+                    .collect()
+            }
+            None => vec![None; counts.len()],
+        };
 
         let candidates = paths
             .iter()
-            .zip(cnt_values_0.iter().zip(cnt_values_1))
+            .zip(counts)
             .zip(keep)
-            .map(|((path, (v0, v1)), &heavy)| {
-                let value: Vec<u64> = v0
-                    .iter()
-                    .zip(v1)
-                    .map(|(&a, &b)| u128::from(a + b) as u64)
-                    .collect();
+            .zip(values.iter_mut())
+            .map(|(((path, count), &heavy), value)| {
                 let region = match &self.encoder {
                     Some(e) if self.regions => e
                         .region(path)
@@ -153,8 +178,8 @@ impl CrawlExport {
                 };
                 ExportCandidate {
                     bits: bits_to_bitstring(path),
-                    count: value[input_len],
-                    value,
+                    count,
+                    value: value.take(),
                     heavy,
                     region,
                 }
@@ -171,6 +196,22 @@ impl CrawlExport {
             .zip(keep)
             .filter_map(|(p, &k)| k.then_some(p))
             .collect();
+    }
+
+    /// Attach the final heavy hitters' full values, from `final_shares`, to the last level.
+    fn attach_final(&mut self, final_values: &[collect::Result]) {
+        let Some(last) = self.levels.last_mut() else {
+            return;
+        };
+        for result in final_values {
+            let bits = bits_to_bitstring(&result.path);
+            let candidate = last
+                .candidates
+                .iter_mut()
+                .find(|c| c.bits == bits && c.heavy)
+                .expect("every final heavy hitter is a heavy candidate of the last level");
+            candidate.value = Some(result.value.iter().map(|&v| u128::from(v) as u64).collect());
+        }
     }
 }
 
@@ -660,9 +701,9 @@ impl PlaintextReport {
     }
 }
 
-/// Synthesize `zipf_unique_buckets` random `(alpha, bucket)` inputs. Clients are later drawn from
-/// them by a Zipf distribution.
-fn synthetic_inputs(cfg: &config::Config) -> Vec<(Vec<bool>, usize)> {
+/// Synthesize `zipf_unique_buckets` random `(alpha, buckets)` inputs, one random bucket per block
+/// of `beta`. Clients are later drawn from them by a Zipf distribution.
+fn synthetic_inputs(cfg: &config::Config) -> Vec<(Vec<bool>, Vec<usize>)> {
     assert!(cfg.zipf_unique_buckets > 0);
 
     let mut rng = thread_rng();
@@ -670,7 +711,10 @@ fn synthetic_inputs(cfg: &config::Config) -> Vec<(Vec<bool>, usize)> {
         .map(|_| {
             (
                 sample_bits(cfg.data_bits.unwrap_or(0)),
-                rng.gen_range(0..cfg.hist_buckets),
+                cfg.hist_blocks()
+                    .iter()
+                    .map(|&size| rng.gen_range(0..size))
+                    .collect(),
             )
         })
         .collect()
@@ -679,19 +723,19 @@ fn synthetic_inputs(cfg: &config::Config) -> Vec<(Vec<bool>, usize)> {
 fn generate_reports(
     cfg: &config::Config,
     mastic: &MasticHistogram,
-    inputs: Vec<(Vec<bool>, usize)>,
+    inputs: Vec<(Vec<bool>, Vec<usize>)>,
 ) -> Vec<PlaintextReport> {
     assert!(!inputs.is_empty());
 
     let reports = inputs
         .into_par_iter()
-        .map(|(alpha, bucket)| {
+        .map(|(alpha, buckets)| {
             let mut rng = thread_rng();
             let nonce = rng.gen::<[u8; 16]>();
 
             match cfg.mode {
                 Mode::WeightedHeavyHitters { .. } | Mode::AttributeBasedMetrics { .. } => {
-                    let beta = mastic.encode_measurement(&bucket).unwrap();
+                    let beta = mastic.encode_measurement(&buckets).unwrap();
 
                     let (key_0, key_1) = VidpfKey::gen(&alpha, &beta);
 
@@ -748,6 +792,10 @@ fn generate_reports(
                     let chunk_length =
                         histogram_chunk_length(mastic.input_len(), Mode::PlainMetrics);
                     let prio3 = Prio3::new_histogram(2, mastic.input_len(), chunk_length).unwrap();
+                    // Prio3's histogram has a single block.
+                    let [bucket] = buckets[..] else {
+                        panic!("plain metrics supports a single histogram block");
+                    };
                     let (public_share, input_shares) = prio3.shard(&bucket, &nonce).unwrap();
 
                     PlaintextReport::Prio3 {
@@ -803,7 +851,7 @@ async fn reset_servers(
 ) -> io::Result<()> {
     let req = ResetRequest {
         verify_key: *verify_key,
-        hist_buckets: cfg.hist_buckets,
+        hist_blocks: cfg.hist_blocks(),
     };
     let request = request_sizes(bench, &req);
     let resp_0 = client_0.reset(long_context(), req.clone());
@@ -992,6 +1040,40 @@ async fn run_flp_queries(
     Ok(())
 }
 
+/// With `reveal_crawl_histograms`: both servers' shares of every candidate's histograms and
+/// count after a crawl, before pruning. `None` when the setting is off.
+async fn frontier_histograms(
+    cfg: &config::Config,
+    client_0: &CollectorClient,
+    client_1: &CollectorClient,
+    bench: &mut Option<Bench>,
+) -> io::Result<Option<(Vec<Vec<Field128>>, Vec<Vec<Field128>>)>> {
+    if !cfg.reveal_crawl_histograms {
+        return Ok(None);
+    }
+    let req = FrontierHistogramsRequest {};
+    let request = request_sizes(bench, &req);
+    let resp_0 = client_0.frontier_histograms(long_context(), req.clone());
+    let resp_1 = client_1.frontier_histograms(long_context(), req);
+    let (values_0, values_1) = try_join!(resp_0, resp_1).unwrap();
+    record(
+        bench,
+        "frontier_histograms",
+        Phase::Online,
+        false,
+        request,
+        &values_0,
+        &values_1,
+    );
+    if values_0.is_empty() || values_1.is_empty() {
+        return Err(Error::other(
+            "reveal_crawl_histograms is set for the driver, but a server refused to send \
+             histograms: start the servers with the same config",
+        ));
+    }
+    Ok(Some((values_0, values_1)))
+}
+
 async fn run_level(
     cfg: &config::Config,
     mastic: &MasticHistogram,
@@ -1047,12 +1129,7 @@ async fn run_level(
         }
 
         assert_eq!(cnt_values_0.len(), cnt_values_1.len());
-        keep = collect::KeyCollection::keep_values(
-            mastic.input_len(),
-            threshold,
-            &cnt_values_0,
-            &cnt_values_1,
-        );
+        keep = collect::KeyCollection::keep_values(threshold, &cnt_values_0, &cnt_values_1);
         cnt_values = (cnt_values_0, cnt_values_1);
         if mt_root_0.is_empty() {
             break;
@@ -1086,9 +1163,10 @@ async fn run_level(
         }
     }
 
+    let values = frontier_histograms(cfg, client_0, client_1, bench).await?;
     if let Some(export) = export {
         let t = Instant::now();
-        export.record(mastic.input_len(), &cnt_values.0, &cnt_values.1, &keep);
+        export.record(&cnt_values.0, &cnt_values.1, &keep, values.as_ref());
         if let Some(b) = bench {
             b.overhead += t.elapsed();
         }
@@ -1150,15 +1228,11 @@ async fn run_level_last(
         b.crawls_per_level.push(1);
     }
     assert_eq!(cnt_values_0.len(), cnt_values_1.len());
-    let keep = collect::KeyCollection::keep_values(
-        mastic.input_len(),
-        threshold,
-        &cnt_values_0,
-        &cnt_values_1,
-    );
+    let keep = collect::KeyCollection::keep_values(threshold, &cnt_values_0, &cnt_values_1);
+    let values = frontier_histograms(cfg, client_0, client_1, bench).await?;
     if let Some(export) = export {
         let t = Instant::now();
-        export.record(mastic.input_len(), &cnt_values_0, &cnt_values_1, &keep);
+        export.record(&cnt_values_0, &cnt_values_1, &keep, values.as_ref());
         if let Some(b) = bench {
             b.overhead += t.elapsed();
         }
@@ -1240,6 +1314,9 @@ async fn run_level_last(
     );
     let final_values =
         collect::KeyCollection::final_values(mastic.input_len(), &shares_0, &shares_1);
+    if let Some(export) = export {
+        export.attach_final(&final_values);
+    }
     if let (Some(b), Some(sw)) = (bench.as_mut(), step) {
         // The collector now holds the output: the online phase ends here (A3).
         b.step("final", sw);
@@ -1253,10 +1330,18 @@ async fn run_level_last(
             .collect();
     }
     let encoder = cfg.dataset.as_ref().map(|d| geo::encoder(&d.encoding));
+    // With weights other than `constant`, also print each cell's non-empty buckets by name, one
+    // line per block of `beta`.
+    let blocks = cfg
+        .dataset
+        .as_ref()
+        .filter(|d| d.weights != [config::Weight::Constant])
+        .map(|d| d.blocks());
     for res in &final_values {
         let bits = mastic::bits_to_bitstring(&res.path);
-        // Filter on the counter (the last element), not on the last histogram bucket: with
-        // several buckets a heavy cell can have 0 in its last one (E7).
+        // The counter (the last element) is the number of clients; the buckets before it are
+        // `beta`. Filter on the counter, not on the last bucket: a heavy cell can have 0 in its
+        // last one (E7).
         if res.value[mastic.input_len()] > Field128::from(0) {
             match &encoder {
                 Some(encoder) => {
@@ -1271,6 +1356,19 @@ async fn run_level_last(
                     );
                 }
                 None => println!("Value ({}) \t Count: {:?}", bits, res.value),
+            }
+            if let Some(blocks) = &blocks {
+                let mut values = res.value.iter();
+                for (name, labels) in blocks {
+                    let buckets = labels
+                        .iter()
+                        .zip(values.by_ref())
+                        .map(|(label, &v)| (label, u128::from(v)))
+                        .filter(|&(_, v)| v > 0)
+                        .map(|(label, v)| format!("{label}={v}"))
+                        .collect::<Vec<_>>();
+                    println!("    {name}: {}", buckets.join(", "));
+                }
             }
         }
     }
@@ -1459,9 +1557,9 @@ fn write_export(
                 "bits": c.bits,
                 "count": c.count,
                 "value": c.value,
-                // The histogram without the counter: with Weight::HourOfDay, the count per hour
-                // bucket.
-                "buckets": &c.value[..input_len],
+                // `beta` without the counter: the blocks of `blocks`, one after the other (with
+                // only `hour_of_day`, the count per hour bucket). Every heavy hitter has a value.
+                "buckets": c.value.as_ref().map(|v| &v[..input_len]),
                 "label": h.label,
                 "center": h.center.map(|(lat, lon)| [lat, lon]),
             })
@@ -1484,13 +1582,29 @@ fn write_export(
         "T": threshold,
         "N": num_clients,
         "hist_buckets": cfg.hist_buckets,
-        "weight": cfg.dataset.as_ref().map(|d| d.weight),
+        "reveal_crawl_histograms": cfg.reveal_crawl_histograms,
+        // The single weight, as before, or the list when there are several.
+        "weight": cfg.dataset.as_ref().map(|d| match d.weights.as_slice() {
+            [one] => serde_json::json!(one),
+            many => serde_json::json!(many),
+        }),
     });
 
     let json = serde_json::json!({
         "format": "mastic-crawl/1",
         "dataset": cfg.dataset.as_ref().map(|d| &d.path),
         "encoding": cfg.dataset.as_ref().map(|d| &d.encoding),
+        "alpha": cfg.dataset.as_ref().map(|d| d.alpha),
+        "weights": cfg.dataset.as_ref().map(|d| &d.weights),
+        "zones": cfg.dataset.as_ref().map(|d| &d.zones),
+        // The blocks of `beta`, in order: they name the first `input_len` entries of each
+        // `value`; the last entry is the count.
+        "blocks": cfg.dataset.as_ref().map(|d| {
+            d.blocks()
+                .into_iter()
+                .map(|(name, labels)| serde_json::json!({"weight": name, "labels": labels}))
+                .collect::<Vec<_>>()
+        }),
         "data_bits": cfg.data_bits,
         "input_len": mastic.input_len(),
         "num_clients": num_clients,
@@ -1536,10 +1650,14 @@ async fn main() -> io::Result<()> {
     .spawn();
 
     println!("- Mode: {:?}", cfg.mode);
-    println!("- Using {:?} histogram buckets", cfg.hist_buckets);
+    println!(
+        "- Using {:?} histogram buckets in blocks {:?}",
+        cfg.hist_buckets,
+        cfg.hist_blocks()
+    );
     println!("- Using {:?} bits", cfg.data_bits);
 
-    let mastic = Mastic::new_histogram(cfg.hist_buckets).unwrap();
+    let mastic = Mastic::new_multi_histogram(cfg.hist_blocks()).unwrap();
     // `--bench-out` reads the per-level candidates and the heavy hitters from the crawl record.
     let mut export = (cfg.export.is_some() || bench.is_some())
         .then(|| CrawlExport::new(&cfg, cfg.export.is_some()));
@@ -1554,7 +1672,7 @@ async fn main() -> io::Result<()> {
             let mut inputs = loaded.inputs;
             inputs.truncate(num_clients);
             println!("- Loaded {} rides from {}", inputs.len(), dataset.path);
-            println!("- Weight: {:?}", dataset.weight);
+            println!("- Weights: {:?}", dataset.weights);
             let summary = format!(
                 "*** DROPPED RIDES: {} of {} outside the area of {:?}; {} rides used ***",
                 loaded.dropped,

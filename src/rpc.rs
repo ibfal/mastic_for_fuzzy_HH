@@ -9,7 +9,8 @@ use crate::{
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResetRequest {
     pub verify_key: [u8; 16],
-    pub hist_buckets: usize,
+    /// Number of buckets of each one-hot block of `beta`.
+    pub hist_blocks: Vec<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -34,6 +35,9 @@ pub struct TreeCrawlRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TreeCrawlLastRequest {}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FrontierHistogramsRequest {}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GetProofsRequest {
@@ -103,10 +107,14 @@ pub trait Collector {
 
     /// Crawl the tree and return the evaluations, the Merkle tree root, and the indices of the
     /// Merkle tree.
-    async fn tree_crawl(req: TreeCrawlRequest) -> (Vec<Vec<Field128>>, Vec<Vec<u8>>, Vec<usize>);
+    async fn tree_crawl(req: TreeCrawlRequest) -> (Vec<Field128>, Vec<Vec<u8>>, Vec<usize>);
 
     /// Crawl the last level of the tree and return the evaluations for different prefixes.
-    async fn tree_crawl_last(req: TreeCrawlLastRequest) -> Vec<Vec<Field128>>;
+    async fn tree_crawl_last(req: TreeCrawlLastRequest) -> Vec<Field128>;
+
+    /// After a crawl: this server's share of each candidate's histograms and count. Empty unless
+    /// the server's config sets `reveal_crawl_histograms`.
+    async fn frontier_histograms(req: FrontierHistogramsRequest) -> Vec<Vec<Field128>>;
 
     /// Return the final VIDPF proofs.
     async fn get_proofs(req: GetProofsRequest) -> Vec<[u8; HASH_SIZE]>;

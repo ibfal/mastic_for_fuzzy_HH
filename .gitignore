@@ -47,3 +47,7 @@ apps/parking/.run/
 # Locally installed agent skills (e.g. apple-design) and their lock file: tooling, not project code.
 .agents/
 skills-lock.json
+# City map: generated data, logs and the built page (city/run.sh).
+city/data/
+city/logs/
+city/dist/

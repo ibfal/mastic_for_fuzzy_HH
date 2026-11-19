@@ -19,7 +19,7 @@ fn collect_test_eval_groups() {
     let mut col_1 = KeyCollection::new(mastic.clone(), 1, &seed, Some(strlen), verify_key);
 
     for cstr in &client_strings {
-        let input_beta = mastic.encode_measurement(&2).unwrap();
+        let input_beta = mastic.encode_measurement(&vec![2]).unwrap();
         let (keys_0, keys_1) = vidpf::VidpfKey::gen_from_str(&cstr, &input_beta);
         col_0.add_report_share(ReportShare::Mastic {
             nonce: Default::default(), // ignored by test
@@ -46,8 +46,7 @@ fn collect_test_eval_groups() {
         let (cnt_values_1, _, _) = col_1.tree_crawl(1usize, &malicious, false);
 
         assert_eq!(cnt_values_0.len(), cnt_values_1.len());
-        let keep =
-            KeyCollection::keep_values(mastic.input_len(), threshold, &cnt_values_0, &cnt_values_1);
+        let keep = KeyCollection::keep_values(threshold, &cnt_values_0, &cnt_values_1);
 
         col_0.tree_prune(&keep);
         col_1.tree_prune(&keep);
@@ -68,8 +67,7 @@ fn collect_test_eval_groups() {
         .all(|(&h0, &h1)| h0 == h1);
     assert!(verified);
 
-    let keep =
-        KeyCollection::keep_values(mastic.input_len(), threshold, &cnt_values_0, &cnt_values_1);
+    let keep = KeyCollection::keep_values(threshold, &cnt_values_0, &cnt_values_1);
 
     col_0.tree_prune(&keep);
     col_1.tree_prune(&keep);
@@ -115,7 +113,7 @@ fn collect_test_eval_full_groups() {
     let mut keys = vec![];
     println!("Starting to generate keys");
     for s in &client_strings {
-        let input_beta = mastic.encode_measurement(&1).unwrap();
+        let input_beta = mastic.encode_measurement(&vec![1]).unwrap();
         keys.push(vidpf::VidpfKey::gen_from_str(&s, &input_beta));
     }
     println!("Done generating keys");
@@ -153,8 +151,7 @@ fn collect_test_eval_full_groups() {
         println!("At level {:?} (size: {:?})", level, cnt_values_0.len());
 
         assert_eq!(cnt_values_0.len(), cnt_values_1.len());
-        let keep =
-            KeyCollection::keep_values(mastic.input_len(), threshold, &cnt_values_0, &cnt_values_1);
+        let keep = KeyCollection::keep_values(threshold, &cnt_values_0, &cnt_values_1);
 
         col_0.tree_prune(&keep);
         col_1.tree_prune(&keep);
@@ -175,8 +172,7 @@ fn collect_test_eval_full_groups() {
         .all(|(&h0, &h1)| h0 == h1);
     assert!(verified);
 
-    let keep =
-        KeyCollection::keep_values(mastic.input_len(), threshold, &cnt_values_0, &cnt_values_1);
+    let keep = KeyCollection::keep_values(threshold, &cnt_values_0, &cnt_values_1);
 
     col_0.tree_prune(&keep);
     col_1.tree_prune(&keep);

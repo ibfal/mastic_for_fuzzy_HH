@@ -1,0 +1,24 @@
+# City map, neighborhoods tab: the busiest RideAustin day (2017-03-17, 21,581 rides), pickups
+# only, with no weights: beta is the plain count (weight = "constant", 1 bucket), so the city learns
+# just the number of pickups in each heavy cell. city/build_map.py then joins heavy cells within 5
+# grid steps of each other into neighborhoods, using only those revealed cells.
+# 0.1% of the rides = 21 pickups per heavy cell.
+# Mosaic's 0.001-degree grid (~111 x 96 m cells).
+mode.weighted_heavy_hitters.threshold = 0.001
+
+data_bits = 22
+hist_buckets = 1
+
+server_0 = "0.0.0.0:8000"
+server_1 = "0.0.0.0:8001"
+
+add_report_share_batch_size = 1000
+# Larger batches exceed tarpc's 8 MiB frame limit.
+query_flp_batch_size = 50000
+zipf_unique_buckets = 1000
+zipf_exponent = 1.03
+
+[dataset]
+path = "city/data/rides_day_companies.csv"
+encoding = "mosaic_grid"
+weight = "constant"

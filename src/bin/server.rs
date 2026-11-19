@@ -12,9 +12,10 @@ use mastic::{
     histogram_chunk_length, prg,
     rpc::{
         AddReportSharesRequest, ApplyFLPResultsRequest, AttributeBasedMetricsResultRequest,
-        AttributeBasedMetricsValidateRequest, Collector, FinalSharesRequest, GetProofsRequest,
-        PlainMetricsResultRequest, PlainMetricsValidateRequest, ResetRequest, RunFlpQueriesRequest,
-        TreeCrawlLastRequest, TreeCrawlRequest, TreeInitRequest, TreePruneRequest,
+        AttributeBasedMetricsValidateRequest, Collector, FinalSharesRequest,
+        FrontierHistogramsRequest, GetProofsRequest, PlainMetricsResultRequest,
+        PlainMetricsValidateRequest, ResetRequest, RunFlpQueriesRequest, TreeCrawlLastRequest,
+        TreeCrawlRequest, TreeInitRequest, TreePruneRequest,
     },
     vec_add, Mastic, HASH_SIZE,
 };
@@ -41,6 +42,8 @@ struct CollectorServer {
     server_id: i8,
     seed: prg::PrgSeed,
     data_bits: Option<usize>,
+    /// From the config: whether `frontier_histograms` may send histograms.
+    reveal_crawl_histograms: bool,
     arc: Arc<Mutex<collect::KeyCollection>>,
 }
 
@@ -49,7 +52,7 @@ impl Collector for CollectorServer {
     async fn reset(self, _: context::Context, req: ResetRequest) -> String {
         let mut coll = self.arc.lock().unwrap();
         *coll = collect::KeyCollection::new(
-            Mastic::new_histogram(req.hist_buckets).unwrap(),
+            Mastic::new_multi_histogram(req.hist_blocks).unwrap(),
             self.server_id,
             &self.seed,
             self.data_bits,
@@ -81,7 +84,7 @@ impl Collector for CollectorServer {
         self,
         _: context::Context,
         req: TreeCrawlRequest,
-    ) -> (Vec<Vec<Field128>>, Vec<Vec<u8>>, Vec<usize>) {
+    ) -> (Vec<Field128>, Vec<Vec<u8>>, Vec<usize>) {
         let start = Instant::now();
         let split_by = req.split_by;
         let malicious = req.malicious;
@@ -115,7 +118,7 @@ impl Collector for CollectorServer {
         self,
         _: context::Context,
         _req: TreeCrawlLastRequest,
-    ) -> Vec<Vec<Field128>> {
+    ) -> Vec<Field128> {
         let start = Instant::now();
         let mut coll = self.arc.lock().unwrap();
 
@@ -123,6 +126,18 @@ impl Collector for CollectorServer {
         println!("Tree crawl last: {:?} sec.", start.elapsed().as_secs_f64());
 
         res
+    }
+
+    async fn frontier_histograms(
+        self,
+        _: context::Context,
+        _req: FrontierHistogramsRequest,
+    ) -> Vec<Vec<Field128>> {
+        if !self.reveal_crawl_histograms {
+            println!("frontier_histograms refused: reveal_crawl_histograms is off");
+            return Vec::new();
+        }
+        self.arc.lock().unwrap().frontier_value_shares()
     }
 
     async fn get_proofs(self, _: context::Context, req: GetProofsRequest) -> Vec<[u8; HASH_SIZE]> {
@@ -323,13 +338,13 @@ impl Collector for CollectorServer {
 async fn main() -> io::Result<()> {
     let (cfg, server_id, _, _) = config::get_args("Server", true, false, false);
     let server_addr = match server_id {
-        0 => cfg.server_0,
-        1 => cfg.server_1,
+        0 => cfg.server_0.clone(),
+        1 => cfg.server_1.clone(),
         _ => panic!("Oh no!"),
     };
 
     let seed = prg::PrgSeed { key: [1u8; 16] };
-    let mastic = Mastic::new_histogram(cfg.hist_buckets).unwrap();
+    let mastic = Mastic::new_multi_histogram(cfg.hist_blocks()).unwrap();
 
     let coll =
         collect::KeyCollection::new(mastic.clone(), server_id, &seed, cfg.data_bits, [0u8; 16]);
@@ -347,6 +362,7 @@ async fn main() -> io::Result<()> {
                 server_id,
                 seed: seed.clone(),
                 data_bits: cfg.data_bits,
+                reveal_crawl_histograms: cfg.reveal_crawl_histograms,
                 arc: arc.clone(),
             };
 

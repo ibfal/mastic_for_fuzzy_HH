@@ -53,9 +53,9 @@ fn generate(
 ) -> Option<([ReportShare; 2], Parts)> {
     let t0 = Instant::now();
     let alpha = encoder.encode(ride.start_location_lat, ride.start_location_long)?;
-    // Every ride's bucket was checked in `main`.
-    let bucket = dataset.weight.bucket(ride).expect("bucket checked in main");
-    let beta = mastic.encode_measurement(&bucket).unwrap();
+    // Every ride's buckets were checked in `main`.
+    let buckets = dataset.buckets(ride).expect("buckets checked in main");
+    let beta = mastic.encode_measurement(&buckets).unwrap();
     let t1 = Instant::now();
 
     let mut rng = thread_rng();
@@ -269,11 +269,10 @@ fn main() -> io::Result<()> {
             encoder.depth()
         )));
     }
-    dataset.weight.validate().map_err(io::Error::other)?;
-    if dataset.weight.num_buckets() != cfg.hist_buckets {
-        return Err(io::Error::other("hist_buckets does not match the weight"));
-    }
-    let mastic = Mastic::new_histogram(cfg.hist_buckets).unwrap();
+    dataset
+        .check_weights(cfg.hist_buckets)
+        .map_err(io::Error::other)?;
+    let mastic = Mastic::new_multi_histogram(cfg.hist_blocks()).unwrap();
 
     let csv = flags.value_of("csv").unwrap();
     let k: usize = flags
@@ -289,11 +288,10 @@ fn main() -> io::Result<()> {
         )));
     }
     rides.truncate(k);
-    // The weight's bucket for every ride (e.g. a missing `hour` for hour_of_day), untimed.
+    // Every ride's buckets (e.g. a missing `hour` for hour_of_day), untimed.
     for (i, ride) in rides.iter().enumerate() {
         dataset
-            .weight
-            .bucket(ride)
+            .buckets(ride)
             .map_err(|e| io::Error::other(format!("{csv}: row {}: {e}", i + 2)))?;
     }
     let meta = match flags.value_of("bench_meta") {

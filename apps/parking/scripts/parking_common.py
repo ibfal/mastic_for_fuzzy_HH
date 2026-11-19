@@ -113,6 +113,10 @@ def config_dict(encoding, csv=None, servers=SERVERS, tau=TAU_MASTIC):
         "add_report_share_batch_size": UPLOAD_BATCH,
         "server_0": servers[0],
         "server_1": servers[1],
+        # The parking app shows the hour profile of every last-level cell, also the ones below
+        # the threshold, so the servers reveal each candidate's histograms during the crawl (the
+        # ride and city configs leave this off and reveal only counts).
+        "reveal_crawl_histograms": True,
         "dataset": {"path": str(csv), "encoding": {encoding: dict(spec["params"])},
                     "weight": {"hour_of_day": {"buckets": HIST_BUCKETS}}},
     }

@@ -1,0 +1,21 @@
+# Morton cells as in ride-austin-day-morton.toml; each heavy cell also gets its 24-bucket
+# pickup-hour histogram. The heavy cells are the same, since the threshold is on the ride count.
+mode.weighted_heavy_hitters.threshold = 0.005
+
+data_bits = 20
+hist_buckets = 24
+
+server_0 = "0.0.0.0:8000"
+server_1 = "0.0.0.0:8001"
+
+# 24 buckets make each VIDPF key ~12.9 KB, so 1000 keys per RPC exceed tarpc's 8 MiB frame limit.
+add_report_share_batch_size = 500
+# Larger batches exceed tarpc's 8 MiB frame limit (100000 fails on the month dataset).
+query_flp_batch_size = 50000
+zipf_unique_buckets = 1000
+zipf_exponent = 1.03
+
+[dataset]
+path = "data/mosaic/sample_busiest_day.csv"
+encoding.morton = { min_lat = 29.9005, max_lat = 30.9245, min_lon = -98.0505, max_lon = -97.0265, axis_bits = 10 }
+weight = "hour_of_day"

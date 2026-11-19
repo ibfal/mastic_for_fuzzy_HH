@@ -1,0 +1,39 @@
+# Morton pickup cells as in ride-austin-day-morton.toml; each heavy pickup cell also gets where
+# its rides were dropped off. A drop-off goes to the first zone whose circle contains it, else to
+# "other". Zone centres and radii are hand-picked approximations.
+mode.weighted_heavy_hitters.threshold = 0.005
+
+data_bits = 20
+hist_buckets = 4
+
+server_0 = "0.0.0.0:8000"
+server_1 = "0.0.0.0:8001"
+
+add_report_share_batch_size = 1000
+# Larger batches exceed tarpc's 8 MiB frame limit (100000 fails on the month dataset).
+query_flp_batch_size = 50000
+zipf_unique_buckets = 1000
+zipf_exponent = 1.03
+
+[dataset]
+path = "data/mosaic/sample_busiest_day.csv"
+encoding.morton = { min_lat = 29.9005, max_lat = 30.9245, min_lon = -98.0505, max_lon = -97.0265, axis_bits = 10 }
+weight = "dropoff_zone"
+
+[[dataset.zones]]
+name = "airport"
+lat = 30.1975
+lon = -97.6664
+radius_km = 2.0
+
+[[dataset.zones]]
+name = "downtown"
+lat = 30.2672
+lon = -97.7431
+radius_km = 1.2
+
+[[dataset.zones]]
+name = "ut_campus"
+lat = 30.2849
+lon = -97.7341
+radius_km = 0.8

@@ -7,12 +7,9 @@ A pickup location is encoded as a bit string `alpha` whose prefixes are nested r
 two-server tree crawl then finds every cell whose number of pickups reaches a threshold, without
 either server seeing individual locations.
 
-> **Security status: research prototype, do not rely on its privacy.** The PRG in `src/prg.rs`
-> currently returns constant control bits, so every VIDPF correction word contains `alpha` in the
-> clear: **either aggregator can read every client's location from its key**. Tests that show this
-> are on the `security-tests` branch (`tests/security_control_bits_test.rs`); the one-line fix is
-> described under [Known limitations](#known-limitations). Results about correctness, cost and which
-> cells are heavy are unaffected.
+> **Security status: research prototype, not production code.** An earlier version of the PRG
+> leaked every client's location to each aggregator. This is fixed; see
+> [Fixed: constant control bits](#fixed-constant-control-bits).
 
 ## Repository layout
 
@@ -250,6 +247,48 @@ python3 -m http.server 8080 --bind 127.0.0.1 --directory viz
 
 Then open http://localhost:8080. The page reads `viz/results/` on every load.
 
+## Security notes
+
+### Fixed: constant control bits
+
+**The bug.** `PrgSeed::expand_dir` in `src/prg.rs` cleared the two low bits of the seed and then
+read those same bits as the control bits, so they were always `(true, true)`. In `gen_cor_word`
+(`src/vidpf.rs`) each correction word's bits are both servers' control bits XOR `alpha[i]`. With
+equal bits on both sides they cancelled, leaving `(!alpha[i], alpha[i])`. Both keys carry the same
+correction words, so **each aggregator could read every client's location from its own key**,
+without the other server. The bug came from the original upstream code.
+
+**The fix.** The control bits are now read from the seed before the mask:
+
+```rust
+bits: ((self.key[0] & 0x1) == 0, (self.key[0] & 0x2) == 0),
+```
+
+The AES key still has the two bits cleared, as before.
+
+**Tests.** `tests/security_control_bits_test.rs` checks that:
+
+- random seeds give all four control-bit combinations;
+- the bits a server could read from one key match the real location only at chance level.
+
+On the old code both tests fail: the bits were always `(true, true)` and 2,000 of 2,000 location
+bits were readable. All other tests still pass, and the quick start still prints `MATCH`.
+
+**Earlier results.** The fix changes neither the output nor the amount of work, so heavy cells,
+counts, key sizes and timings from before the fix are still valid. Their privacy is not: the
+benchmark in `bench/` was run on commit `5efbdeb`, before the fix, and `bench/LEAKAGE_mastic.md`
+describes that commit (issue S1).
+
+### Still open: the test harness
+
+These come from how the prototype is run. They are not part of the Mastic protocol:
+
+- **The driver sees everything.** It simulates every client, so it holds all inputs in plaintext.
+  It also acts as the collector. In a real deployment, clients send their shares directly.
+- **Traffic is unencrypted.** The driver and the servers talk over plain TCP without TLS. Anyone on
+  the network can read both keys, and so every input.
+
+See `bench/LEAKAGE_mastic.md` (rows 9 and 10) for the full list of what each party learns.
 
 ## Disclaimer
 

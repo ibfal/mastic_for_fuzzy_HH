@@ -187,5 +187,5 @@ Two things are revealed by design:
 - **The threshold applies to the cell total, not to each company.** A cell with 21 rides can
   still show that one company had 1 of them.
 
-The repository-wide prototype warning in the top-level README (the PRG's constant control bits)
-applies here too.
+The [security notes](../README.md#security-notes) in the top-level README apply here too. The
+control-bit leak is fixed. The driver still sees every input, and traffic is still unencrypted.
